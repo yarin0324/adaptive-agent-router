@@ -362,7 +362,11 @@ class AdaptiveAgentDispatcher:
             )
 
         # 審批通過，直接執行目標模式
-        mode_enum = AgentMode(task.target_mode)
+        try:
+            mode_enum = AgentMode(task.target_mode)
+        except Exception:
+            mode_enum = AgentMode.SINGLE_TURN
+
         executor = self.mode_registry.get(mode_enum, self.mode_registry[AgentMode.SINGLE_TURN])
         resume_context = dict(task.context_snapshot)
         resume_context["approved_by_human"] = True
@@ -381,13 +385,45 @@ class AdaptiveAgentDispatcher:
             result.output = OutputPIISanitizerRail.sanitize(result.output)
             result.output, _, _ = SystemPromptLeakGuard.inspect_and_sanitize(result.output)
 
+            self.audit_logger.record_event(
+                event_type="TASK_COMPLETED" if result.success else "TASK_FAILED",
+                prompt=task.prompt,
+                mode_used=result.mode_used.value,
+                risk_level=task.risk_level,
+                details={"task_id": task_id, "tokens": result.total_tokens_used or 0, "resumed": True},
+                operator_id=operator_id,
+            )
+
             return result
         except CircuitBreakerException as cbe:
+            self.audit_logger.record_event(
+                event_type="TASK_FAILED",
+                prompt=task.prompt,
+                mode_used=mode_enum.value,
+                risk_level=task.risk_level,
+                details={"task_id": task_id, "error": str(cbe), "circuit_breaker": True},
+                operator_id=operator_id,
+            )
             return ExecutionResult(
                 output=f"⚠️ 審批放行後執行觸發熔斷防禦: {str(cbe)}",
                 mode_used=mode_enum,
                 success=False,
                 metadata={"circuit_breaker_tripped": True, "resume_task_id": task_id}
+            )
+        except Exception as e:
+            self.audit_logger.record_event(
+                event_type="TASK_FAILED",
+                prompt=task.prompt,
+                mode_used=mode_enum.value,
+                risk_level=task.risk_level,
+                details={"task_id": task_id, "error": str(e)},
+                operator_id=operator_id,
+            )
+            return ExecutionResult(
+                output=f"審批放行後執行異常: {str(e)}",
+                mode_used=mode_enum,
+                success=False,
+                metadata={"error": str(e), "resume_task_id": task_id}
             )
 
     def record_feedback(

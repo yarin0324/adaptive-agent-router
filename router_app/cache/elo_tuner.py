@@ -6,6 +6,7 @@
 
 import math
 import json
+import threading
 import time
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
@@ -23,11 +24,12 @@ class ModeFeedbackStats(BaseModel):
 
 
 class ELORatingTuner:
-    """模式等級分與自適應偏好權重調校器"""
+    """模式等級分與自適應偏好權重調校器 (執行緒安全)"""
 
     def __init__(self, k_factor: float = 32.0, base_rating: float = 1200.0):
         self.k_factor = k_factor
         self.base_rating = base_rating
+        self._lock = threading.Lock()
         self.stats: Dict[AgentMode, ModeFeedbackStats] = {
             mode: ModeFeedbackStats(mode=mode, elo_rating=base_rating)
             for mode in AgentMode
@@ -41,76 +43,81 @@ class ELORatingTuner:
         user_rating: Optional[float] = None,
     ) -> float:
         """
-        記錄一次執行成果並計算 ELO 增減
+        記錄一次執行成果並計算 ELO 增減 (執行緒安全)
         - success: 任務是否順利完成 (True=勝, False=負/中斷)
         - user_rating: 1.0 ~ 5.0 (選填)
         """
-        if mode not in self.stats:
-            self.stats[mode] = ModeFeedbackStats(mode=mode, elo_rating=self.base_rating)
+        with self._lock:
+            if mode not in self.stats:
+                self.stats[mode] = ModeFeedbackStats(mode=mode, elo_rating=self.base_rating)
 
-        stat = self.stats[mode]
-        stat.total_calls += 1
-        if success:
-            stat.success_calls += 1
-        else:
-            stat.failed_calls += 1
+            stat = self.stats[mode]
+            stat.total_calls += 1
+            if success:
+                stat.success_calls += 1
+            else:
+                stat.failed_calls += 1
 
-        # 更新指數移動平均延遲
-        if stat.total_calls == 1:
-            stat.avg_latency_ms = latency_ms
-        else:
-            stat.avg_latency_ms = 0.85 * stat.avg_latency_ms + 0.15 * latency_ms
+            # 更新指數移動平均延遲
+            if stat.total_calls == 1:
+                stat.avg_latency_ms = latency_ms
+            else:
+                stat.avg_latency_ms = 0.85 * stat.avg_latency_ms + 0.15 * latency_ms
 
-        # 計算期望勝率 (Expected Probability) 相對於基準 1200
-        rating_diff = stat.elo_rating - self.base_rating
-        expected_score = 1.0 / (1.0 + math.pow(10, -rating_diff / 400.0))
+            # 計算期望勝率 (Expected Probability) 相對於基準 1200
+            rating_diff = stat.elo_rating - self.base_rating
+            expected_score = 1.0 / (1.0 + math.pow(10, -rating_diff / 400.0))
 
-        # 計算實際得分 (Actual Score)
-        if user_rating is not None:
-            # 轉換 1~5 星評分至 0.0 ~ 1.0
-            actual_score = max(0.0, min(1.0, (user_rating - 1.0) / 4.0))
-        else:
-            actual_score = 1.0 if success else 0.0
+            # 計算實際得分 (Actual Score)
+            if user_rating is not None:
+                # 轉換 1~5 星評分至 0.0 ~ 1.0
+                actual_score = max(0.0, min(1.0, (user_rating - 1.0) / 4.0))
+            else:
+                actual_score = 1.0 if success else 0.0
 
-        # ELO 更新公式: R_new = R_old + K * (Actual - Expected)
-        elo_delta = self.k_factor * (actual_score - expected_score)
-        stat.elo_rating = round(stat.elo_rating + elo_delta, 2)
-        stat.last_updated = time.time()
+            # ELO 更新公式: R_new = R_old + K * (Actual - Expected)
+            elo_delta = self.k_factor * (actual_score - expected_score)
+            stat.elo_rating = round(stat.elo_rating + elo_delta, 2)
+            stat.last_updated = time.time()
 
-        return stat.elo_rating
+            return stat.elo_rating
 
     def get_routing_bias(self, mode: AgentMode) -> float:
         """
         取得該模式對於路由器信心分數的加權補償 (Bias Delta: -0.15 ~ +0.15)
-        正分提升優先級，負分抑制作為降級依據
+        正分提升優先級，負分抑制作為降級依據 (執行緒安全)
         """
-        stat = self.stats.get(mode)
-        if not stat:
-            return 0.0
+        with self._lock:
+            stat = self.stats.get(mode)
+            if not stat:
+                return 0.0
 
-        # 將 ELO 偏差 (例如 1000 ~ 1400) 映射至 [-0.15, +0.15]
-        diff = stat.elo_rating - self.base_rating
-        bias = math.tanh(diff / 300.0) * 0.15
-        return round(bias, 4)
+            # 將 ELO 偏差 (例如 1000 ~ 1400) 映射至 [-0.15, +0.15]
+            diff = stat.elo_rating - self.base_rating
+            bias = math.tanh(diff / 300.0) * 0.15
+            return round(bias, 4)
 
     def get_mode_stats(self, mode: AgentMode) -> Dict[str, Any]:
         """取得單一模式的統計指標"""
-        if mode in self.stats:
-            return self.stats[mode].model_dump()
-        return {}
+        with self._lock:
+            if mode in self.stats:
+                return self.stats[mode].model_dump()
+            return {}
 
     def export_ratings(self) -> Dict[str, Any]:
         """導出所有模式之 ELO 現狀以利持久化"""
-        return {
-            mode.value: stat.model_dump()
-            for mode, stat in self.stats.items()
-        }
+        with self._lock:
+            return {
+                mode.value: stat.model_dump()
+                for mode, stat in self.stats.items()
+            }
 
     def load_ratings(self, data: Dict[str, Any]):
         """載入歷史 ELO 等級分狀態"""
-        for mode_str, stat_dict in data.items():
-            try:
-                mode = AgentMode(mode_str)
-                self.stats[mode] = ModeFeedbackStats(**stat_dict)
-            except Exception:
-                continue
+        with self._lock:
+            for mode_str, stat_dict in data.items():
+                try:
+                    mode = AgentMode(mode_str)
+                    self.stats[mode] = ModeFeedbackStats(**stat_dict)
+                except Exception:
+                    continue
