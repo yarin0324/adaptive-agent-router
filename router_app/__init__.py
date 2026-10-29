@@ -6,7 +6,7 @@ from .dispatcher import AdaptiveAgentDispatcher
 from .router import AdaptiveRouter
 from .types import AgentMode, RiskLevel, ModelTier, RoutingDecision, ExecutionResult
 from .tools.base_tool import BaseTool, SimpleFunctionTool
-from .cache import RouteCache, SemanticPrototypeMatcher
+from .cache import RouteCache, SemanticPrototypeMatcher, RRFEngine
 from .tracing import TraceContext, TraceSpan
 from .compression import ContextCompressor
 from .guardrails import (
@@ -33,6 +33,7 @@ __all__ = [
     "SimpleFunctionTool",
     "RouteCache",
     "SemanticPrototypeMatcher",
+    "RRFEngine",
     "TraceContext",
     "TraceSpan",
     "ContextCompressor",

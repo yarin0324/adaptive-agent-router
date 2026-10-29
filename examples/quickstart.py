@@ -115,6 +115,21 @@ def main():
     print(compressed_output)
     print("-" * 65)
 
+    # 驗證特性 7: RRF (Reciprocal Rank Fusion) 混合檢索 (借鏡 MySecondBrain)
+    print("\n[RRF Hybrid Retrieval Test] 驗證倒數排名融合檢索 (兼顧精確代碼與抽象語意)...")
+    memory = dispatcher.memory
+    memory.save_memory("u1", "s1", "架構決策", "本專案強制要求所有 SQL 查詢必須加上 WITH (NOLOCK) 防死鎖機制。")
+    memory.save_memory("u1", "s1", "安全規範", "API 密鑰格式為 ghp_xxxx，禁止在日誌中輸出未脫敏之客戶身分證或統一編號。")
+    memory.save_memory("u1", "s1", "業務代碼", "發票批次解析專案代號為 PROJ_INV_2026，每日排程於凌晨兩點執行。")
+
+    # 搜尋: 同時包含概念詞與精確專有名詞
+    query = "查詢資料庫查詢的防死鎖與 WITH 規範"
+    recalled = memory.retrieve_relevant(query, limit=2)
+    print(f"RRF 混合檢索提問: '{query}'")
+    for r in recalled:
+        print(f"  -> [RRF Score: {r['rrf_score']}] 主題: {r['topic']} | 內容: {r['content']}")
+    print("-" * 65)
+
 
 if __name__ == "__main__":
     main()

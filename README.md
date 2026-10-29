@@ -107,6 +107,11 @@ flowchart TD
 ### 2.9 長流程任務檢查點 (Task Checkpointer & State Snapshots)
 Planner-Executor 每完成一個子步驟即序列化一筆不可變快照（Snapshot）。若後續步驟中斷，呼叫端可直接從最後成功的 Checkpoint 接續執行。
 
+### 2.10 RRF 倒數排名融合記憶檢索 (Reciprocal Rank Fusion - RRF Engine)
+借鏡 Cormack et al. (SIGIR 2009) 論文與 MySecondBrain 實踐，情境記憶層原生內建純 Python RRF 混合召回：
+- 結合**精確關鍵字排名 (Lexical Rank)** 與 **語意餘弦相似度排名 (Semantic Rank)**。
+- 透過名次倒數公式 $RRF(d) = \sum \frac{w}{k + r(d)}$ 進行多數決投票，兼顧專有名詞代號的精確命中與抽象概念的關聯召回。
+
 ---
 
 ## 3. 效能與成本基準 (Performance & Cost Benchmark)
