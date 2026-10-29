@@ -17,40 +17,40 @@
 
 ```mermaid
 flowchart TD
-    Client["💻 上層業務應用端<br><code>OCR 引擎 / 金融風控 / ERP 系統 / Web API</code>"] -->|Prompt / Context| Ingress
+    Client["業務應用接入層 (Application Tier)<br>OCR 憑證辨識 / 量化投研 / ERP 流程 / Web API"] -->|Prompt / Context| Ingress
 
-    subgraph Ingress ["⚡ 核心微核心與治理防護層 (Microkernel Gateway)"]
+    subgraph Ingress ["微核心調度網關 (Microkernel Gateway)"]
         direction TB
-        subgraph CoreServices ["治理與防護中樞"]
-            Cache["⚡ 零延遲雜湊快取<br>RouteCache (0ms Hit)"]
-            StaticGuard["🛡️ 靜態安全護欄<br>不可逆操作關鍵字快篩"]
-            Router["🧭 智慧動態路由器<br>AdaptiveRouter (語意維度/複雜度)"]
-            Breaker["🔌 任務級熔斷防護<br>TaskCircuitBreaker (Token/步數/超時)"]
-            FSM["⏸️ 人機審批狀態機<br>TaskSuspensionManager (掛起/喚醒)"]
-            Tracer["📡 分散式鏈路追蹤<br>TraceContext (OpenTelemetry)"]
+        subgraph CoreServices ["核心治理防護機制 (Core Governance)"]
+            Cache["零延遲快取 (RouteCache)<br>SHA-256 雜湊 / 0ms Hit"]
+            StaticGuard["靜態規則守衛 (Static Guardrail)<br>不可逆操作快篩 / 語意安全閥"]
+            Router["自適應路由器 (AdaptiveRouter)<br>多維語意判定 / 複雜度分級"]
+            Breaker["任務熔斷防禦 (TaskCircuitBreaker)<br>Token 配額 / 步數閥值 / 逾時截斷"]
+            FSM["人機審批狀態機 (TaskSuspensionManager)<br>非同步任務掛起 / 外部信號喚醒"]
+            Tracer["全鏈路追蹤器 (TraceContext)<br>OpenTelemetry 相容 / 分佈式 Span"]
         end
     end
 
     Ingress --> M1 & M2 & M4 & M5 & M6 & M7 & M8 & M9 & M10
 
-    subgraph Engines ["🧩 10 大解耦 Agent 模式執行引擎 (Execution Modes)"]
+    subgraph Engines ["解耦執行引擎陣列 (Decoupled Mode Engines)"]
         direction TB
-        subgraph LowLatencyTier ["低時延與工具操作基座"]
-            M1["⚡ 模式 1: 增強型單次回應<br>欄位抽取 / 格式轉換 / 摘要"]
-            M2["🔄 模式 2: ReAct 思考迴圈<br>探索診斷 / 邊做邊看 / 動態路徑"]
-            M8["🛠️ 模式 8: 專用工具代理<br>API 匹配 / SQL 執行 / 系統操作"]
-            M10["🧠 模式 10: 情境式記憶<br>向量記憶 / 偏好錨定 / 歷史承襲"]
+        subgraph LowLatencyTier ["低時延與操作層 (Low-Latency Tier)"]
+            M1["模式 1: 增強型單次回應<br>欄位抽取 / 格式轉換 / 摘要生成"]
+            M2["模式 2: 反思迴圈 (ReAct)<br>探索診斷 / 動態路徑 / 邊做邊看"]
+            M8["模式 8: 專用工具代理<br>API 匹配 / SQL 執行 / 系統操作"]
+            M10["模式 10: 情境式記憶<br>向量快照 / 偏好錨定 / 歷史承襲"]
         end
-        subgraph HighReasoningTier ["深度推理與決策治理基座"]
-            M4["📋 模式 4: 規劃-執行器<br>DAG 步驟拆解 / 並行子任務彙整"]
-            M5["🧐 模式 5: 評估-優化反思<br>Critic 批評 / 漏洞修補 / 2-3輪精煉"]
-            M6["🛑 模式 6: 驗證門控<br>高風險不可逆指令 / 審批攔截"]
-            M7["⚖️ 模式 7: 對抗辯論協作<br>正方立論 / 紅隊挑刺 / 仲裁定案"]
-            M9["🗳️ 模式 9: 並行自洽投票<br>多路並行採樣 / 多數決收斂"]
+        subgraph HighReasoningTier ["深度推理與治理層 (Deep Reasoning Tier)"]
+            M4["模式 4: 規劃-執行器<br>DAG 步驟拆解 / 並行子任務彙整"]
+            M5["模式 5: 評估-優化反思<br>Critic 批評 / 漏洞修補 / 多輪精煉"]
+            M6["模式 6: 驗證門控<br>高風險不可逆指令 / 審批攔截"]
+            M7["模式 7: 對抗辯論協作<br>正方立論 / 紅隊挑刺 / 仲裁定案"]
+            M9["模式 9: 並行自洽投票<br>多路並行採樣 / 多數決收斂"]
         end
     end
 
-    Engines --> Output["📁 交付成果與遙測審計<br>ExecutionResult (包含 Telemetry 指標與 TraceContext 鏈路 JSON)"]
+    Engines --> Output["結構化交付與遙測審計 (Audit & Delivery)<br>ExecutionResult / OpenTelemetry Traces"]
 ```
 
 ---
