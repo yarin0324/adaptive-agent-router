@@ -1,7 +1,7 @@
 """
 編譯器級 AST 語法樹安全護欄 (AST Security Guardrail)
-借鏡自 SapB1McpServer AST 唯讀護欄設計
-不依賴易被混淆的正則表達式，直接在編譯階段檢查抽象語法樹 (Abstract Syntax Tree)，
+實作嚴格抽象語法樹 (Abstract Syntax Tree) 節點審查，防禦靜態程式碼注入與資料庫破壞。
+不依賴易被混淆的正則表達式，直接在編譯階段檢查語法結構，
 杜絕 Prompt 越獄、程式碼注入與資料庫破壞。
 """
 

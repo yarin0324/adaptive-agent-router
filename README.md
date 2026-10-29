@@ -82,6 +82,10 @@ flowchart TD
 
 - **微核心熱插拔架構 (Microkernel & Plug-and-Play)**：調度中樞 `AdaptiveAgentDispatcher` 與業務邏輯徹底實體解耦，透過 `BaseTool` 契約無縫掛載，執行模式具備獨立擴充與替換能力。
 - **雙維度算力矩陣路由 (2D Routing: Pattern × Model Tier)**：決策引擎同時輸出架構模式與最佳算力階層（`FAST` / `STANDARD` / `REASONING`），兼顧系統延遲與 Token 成本。
+- **非同步串流輸出 (Async Streaming SSE Engine)**：原生支援 `aprocess_stream()`，以 Server-Sent Events (SSE) 規格逐段發送路由決策、步驟進度與 Token 區塊，消弭長迴圈阻塞。
+- **反饋自適應 ELO 評級 (Feedback-Driven ELO Tuner)**：依據任務勝率、耗時與人工評分動態計算各模式 ELO 等級分（基準分 1200），即時補正路由器信心偏置，實現系統自主進化。
+- **零代碼工具吸納器 (OpenAPI 3.0 & FastMCP Ingestion)**：直接讀取 Swagger/OpenAPI 或 FastMCP 規格，自動推論風險等級並封裝為受 AST 護欄保護的標準 `BaseTool`。
+- **實體隔離執行沙盒 (Restricted Subprocess Sandbox)**：靜態 AST 審查搭配作業系統層級行程隔離（超時、環境變數與暫存目錄限制），防禦動態反射與資源耗竭。
 - **編譯器級 AST 語法樹護欄 (Compiler AST Security Guard)**：跳脫易被註解混淆繞過的正則表達式，直接在語法樹層級物理阻斷危險 Python 系統調用與破壞性 SQL 語句（物理繞過率 0%）。
 - **全鏈路任務治理與安全機制 (Task Governance & Resilience)**：
   - **任務級熔斷器 (TaskCircuitBreaker)**：步數閥值、Token 預算與逾時三重硬性防禦，根除 Agent 死循環。
@@ -168,7 +172,9 @@ print(result.output)
 
 ## 7. 跨領域整合實戰案例 (End-to-End Integration Examples)
 
-專案提供兩套不同領域的端到端生產範例，位於 `examples/` 目錄：
+專案提供多領域端到端生產範例與進階功能演練，位於 `examples/` 目錄：
+- **四大進階架構機制實證演練**：[`examples/advanced_features_demo.py`](examples/advanced_features_demo.py)
+  展示非同步 SSE 串流推送、自適應 ELO 等級分反饋調校、OpenAPI/MCP 工具規格吸納與 Subprocess 隔離沙盒。
 - **大量票據與憑證 OCR 智慧解析**：[`examples/plug_into_ocr_example.py`](examples/plug_into_ocr_example.py)
   展示如何將模糊辨識問題自動導向 ReAct 邊做邊調參數，並將批次十萬張憑證導向 Planner 拆解。
 - **量化投資與金融智慧風控**：[`examples/plug_into_stock_example.py`](examples/plug_into_stock_example.py)

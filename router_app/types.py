@@ -55,6 +55,27 @@ class RoutingDecision(BaseModel):
     tags: List[str] = Field(default_factory=list, description="任務屬性標籤，例如 ['sql', 'high_latency', 'critical_data']")
 
 
+class StreamEventType(str, Enum):
+    """串流輸出事件種類 (SSE Aligned)"""
+    ROUTE_START = "route_start"
+    ROUTE_DECIDED = "route_decided"
+    STEP_PROGRESS = "step_progress"
+    TOOL_INVOCATION = "tool_invocation"
+    CONTENT_CHUNK = "content_chunk"
+    TASK_SUSPENDED = "task_suspended"
+    TASK_COMPLETED = "task_completed"
+    TASK_FAILED = "task_failed"
+
+
+class RouterStreamChunk(BaseModel):
+    """串流輸出標準區塊"""
+    event: StreamEventType = Field(..., description="串流事件類型")
+    task_id: Optional[str] = Field(default=None, description="任務關聯 ID")
+    data: Dict[str, Any] = Field(default_factory=dict, description="事件結構化載荷")
+    delta: Optional[str] = Field(default=None, description="增量文字片段 (Token Chunk)")
+    message: Optional[str] = Field(default=None, description="狀態摘要訊息")
+
+
 class ExecutionResult(BaseModel):
     """
     執行器回傳的標準化成果

@@ -3,7 +3,8 @@
 統一入口，負責整合 Router、各模式執行器、工具庫與情境記憶。
 """
 
-from typing import Any, Dict, List, Optional
+import asyncio
+from typing import Any, AsyncGenerator, Dict, List, Optional
 try:
     from rich.console import Console
     from rich.panel import Panel
@@ -15,7 +16,7 @@ except ImportError:
     HAS_RICH = False
     console = None
 
-from .types import AgentMode, ExecutionResult, RoutingDecision
+from .types import AgentMode, ExecutionResult, RoutingDecision, StreamEventType, RouterStreamChunk
 from .router import AdaptiveRouter
 from .memory.memory_manager import MemoryManager
 from .tools.base_tool import BaseTool
@@ -45,7 +46,7 @@ from .guardrails import (
     OutputPIISanitizerRail,
     TaskCheckpointer,
 )
-from .cache import RouteCache
+from .cache import RouteCache, ELORatingTuner
 from .tracing import TraceContext
 
 
@@ -61,9 +62,11 @@ class AdaptiveAgentDispatcher:
         self,
         custom_tools: Optional[List[BaseTool]] = None,
         custom_modes: Optional[Dict[AgentMode, Any]] = None,
+        elo_tuner: Optional[ELORatingTuner] = None,
         enable_logging: bool = True,
     ):
-        self.router = AdaptiveRouter()
+        self.elo_tuner = elo_tuner or ELORatingTuner()
+        self.router = AdaptiveRouter(elo_tuner=self.elo_tuner)
         self.memory = MemoryManager()
         self.cache = RouteCache()
         self.suspension_manager = TaskSuspensionManager()
@@ -244,6 +247,156 @@ class AdaptiveAgentDispatcher:
         result.metadata["resume_task_id"] = task_id
         result.metadata["approved_by_human"] = True
         return result
+
+    def record_feedback(
+        self,
+        mode: AgentMode,
+        success: bool,
+        latency_ms: float = 0.0,
+        user_rating: Optional[float] = None,
+    ) -> float:
+        """
+        向 ELO 調校器提交執行成果反饋，即時更新該 Agent 模式之動態等級分
+        """
+        new_rating = self.elo_tuner.record_feedback(
+            mode=mode,
+            success=success,
+            latency_ms=latency_ms,
+            user_rating=user_rating,
+        )
+        if self.enable_logging:
+            print(f"📊 [ELO Tuner] 模式 {mode.value} 反饋已記錄: 評分調校至 {new_rating:.1f}")
+        return new_rating
+
+    async def aprocess(
+        self,
+        prompt: str,
+        context: Optional[Dict[str, Any]] = None,
+        forced_mode: Optional[AgentMode] = None,
+        trace_id: Optional[str] = None,
+    ) -> ExecutionResult:
+        """非同步無阻塞呼叫 (Async Non-blocking Dispatch)"""
+        return await asyncio.to_thread(
+            self.process,
+            prompt=prompt,
+            context=context,
+            forced_mode=forced_mode,
+            trace_id=trace_id,
+        )
+
+    async def aprocess_stream(
+        self,
+        prompt: str,
+        context: Optional[Dict[str, Any]] = None,
+        forced_mode: Optional[AgentMode] = None,
+        trace_id: Optional[str] = None,
+    ) -> AsyncGenerator[RouterStreamChunk, None]:
+        """
+        非同步串流輸出引擎 (Async Streaming SSE Generator)
+        逐段產出路由決策、步驟進度、思考過程與結果 Token 區塊。
+        """
+        # 1. 廣播路由啟動事件
+        yield RouterStreamChunk(
+            event=StreamEventType.ROUTE_START,
+            message="正在進行安全快篩與自適應路由分析...",
+            data={"prompt": prompt},
+        )
+
+        # 0. 前置安全軌道防禦
+        is_safe, security_msg = InputSecurityRail.validate_prompt(prompt)
+        if not is_safe:
+            yield RouterStreamChunk(
+                event=StreamEventType.TASK_FAILED,
+                message=f"Prompt 被安全衛兵阻斷: {security_msg}",
+                data={"blocked_by": "InputSecurityRail"},
+            )
+            return
+
+        # 1. 路由決策
+        cached_decision = self.cache.get(prompt) if not forced_mode else None
+        if cached_decision:
+            decision = cached_decision
+            is_cached = True
+        elif forced_mode:
+            decision = RoutingDecision(
+                mode=forced_mode,
+                reasoning="使用者強制指定執行模式",
+                tags=["forced_override"],
+            )
+            is_cached = False
+        else:
+            decision = self.router.route(prompt, context)
+            self.cache.set(prompt, decision)
+            is_cached = False
+
+        yield RouterStreamChunk(
+            event=StreamEventType.ROUTE_DECIDED,
+            message=f"已成功分流至模式: {decision.mode.value} (算力階層: {decision.model_tier.value})",
+            data={
+                "decision": decision.model_dump(),
+                "is_cached": is_cached,
+            },
+        )
+
+        # 2. 檢驗高風險掛起
+        if decision.require_human_confirmation:
+            suspended = self.suspension_manager.suspend(
+                prompt=prompt,
+                target_mode=decision.mode.value,
+                risk_level=decision.risk_level.value,
+                context=context,
+            )
+            yield RouterStreamChunk(
+                event=StreamEventType.TASK_SUSPENDED,
+                task_id=suspended.task_id,
+                message=f"偵測到不可逆高風險指令，任務已掛起等待審批 (Task ID: {suspended.task_id})",
+                data={"risk_level": decision.risk_level.value},
+            )
+            return
+
+        # 3. 執行模式
+        executor = self.mode_registry.get(decision.mode, self.mode_registry[AgentMode.SINGLE_TURN])
+        
+        # 發送執行開始信號
+        yield RouterStreamChunk(
+            event=StreamEventType.STEP_PROGRESS,
+            message=f"正在啟動 {decision.mode.value} 執行引擎...",
+            data={"estimated_steps": decision.estimated_steps},
+        )
+
+        # 非同步執行運算 (避免卡死 Event Loop)
+        result = await asyncio.to_thread(executor.run, prompt=prompt, tools=self.tools, context=context)
+
+        # 廣播中間步驟進度
+        for idx, step in enumerate(result.execution_steps, 1):
+            yield RouterStreamChunk(
+                event=StreamEventType.STEP_PROGRESS,
+                message=f"步驟 {idx} 執行完成",
+                data={"step_detail": step},
+            )
+
+        # 個資脫敏
+        sanitized_output = OutputPIISanitizerRail.sanitize(result.output)
+
+        # 模擬串流 Token 增量推送 (依段落或 Token 分塊)
+        paragraphs = sanitized_output.split("\n")
+        for p in paragraphs:
+            yield RouterStreamChunk(
+                event=StreamEventType.CONTENT_CHUNK,
+                delta=p + "\n",
+            )
+            await asyncio.sleep(0.01)
+
+        # 任務完成
+        yield RouterStreamChunk(
+            event=StreamEventType.TASK_COMPLETED,
+            message="任務順利交付完畢",
+            data={
+                "mode_used": result.mode_used.value,
+                "total_tokens_used": result.total_tokens_used,
+                "success": result.success,
+            },
+        )
 
     def _log_decision(self, prompt: str, decision: RoutingDecision, is_cached: bool = False):
         """美化輸出路由決策日誌"""

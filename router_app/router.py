@@ -9,12 +9,14 @@ from typing import Any, Dict, List, Optional
 from .types import AgentMode, RiskLevel, ModelTier, RoutingDecision
 from .config import config
 from .cache.semantic_matcher import SemanticPrototypeMatcher
+from .cache.elo_tuner import ELORatingTuner
 
 
 class AdaptiveRouter:
     """
     動態路由器 (模式 3: Router)
     分析使用者輸入與系統脈絡，自動輸出 (Pattern × Model Tier) 最佳解。
+    整合 ELO 動態等級分調校偏好。
     """
 
     # 模式與算力階層之映射矩陣 (借鏡 RouteLLM)
@@ -30,9 +32,10 @@ class AdaptiveRouter:
         AgentMode.MEMORY_AUGMENTED: ModelTier.FAST,
     }
 
-    def __init__(self, default_model: Optional[str] = None):
+    def __init__(self, default_model: Optional[str] = None, elo_tuner: Optional[ELORatingTuner] = None):
         self.default_model = default_model or config.ROUTER_MODEL
         self.semantic_matcher = SemanticPrototypeMatcher()
+        self.elo_tuner = elo_tuner or ELORatingTuner()
 
     def route(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> RoutingDecision:
         """
@@ -79,17 +82,27 @@ class AdaptiveRouter:
         return None
 
     def _semantic_prototype_route(self, prompt: str) -> Optional[RoutingDecision]:
-        """借鏡 Semantic Router: 餘弦語意原型快速匹配"""
+        """借鏡 Semantic Router: 餘弦語意原型快速匹配 + ELO 動態權重修正"""
         match_result = self.semantic_matcher.match(prompt)
         if match_result:
             mode, score, prototype = match_result
+            bias = self.elo_tuner.get_routing_bias(mode)
+            calibrated_score = score + bias
+
+            # 若經 ELO 懲罰後分數低於門檻 (0.50)，暫緩推薦
+            if calibrated_score < 0.50:
+                return None
+
+            elo_stat = self.elo_tuner.stats.get(mode)
+            elo_val = elo_stat.elo_rating if elo_stat else 1200.0
+
             return RoutingDecision(
                 mode=mode,
                 model_tier=self.MODEL_TIER_MAP.get(mode, ModelTier.STANDARD),
-                reasoning=f"命中語意原型特徵 (相似度 {score:.2f} >= 0.55): '{prototype}'",
+                reasoning=f"命中語意原型特徵 (原始分 {score:.2f}, ELO偏置 {bias:+.2f} ➜ 校準分 {calibrated_score:.2f}): '{prototype}'",
                 risk_level=RiskLevel.MEDIUM if mode == AgentMode.REFLECTION else RiskLevel.LOW,
                 estimated_steps=3 if mode in [AgentMode.PLANNER_EXECUTOR, AgentMode.MULTI_AGENT] else 1,
-                tags=["semantic_prototype_hit", f"score_{score}"]
+                tags=["semantic_prototype_hit", f"score_{score:.2f}", f"elo_{elo_val:.0f}"]
             )
         return None
 

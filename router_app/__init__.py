@@ -4,9 +4,29 @@
 
 from .dispatcher import AdaptiveAgentDispatcher
 from .router import AdaptiveRouter
-from .types import AgentMode, RiskLevel, ModelTier, RoutingDecision, ExecutionResult
-from .tools.base_tool import BaseTool, SimpleFunctionTool
-from .cache import RouteCache, SemanticPrototypeMatcher, RRFEngine
+from .types import (
+    AgentMode,
+    RiskLevel,
+    ModelTier,
+    RoutingDecision,
+    ExecutionResult,
+    StreamEventType,
+    RouterStreamChunk,
+)
+from .tools import (
+    BaseTool,
+    SimpleFunctionTool,
+    ToolLoader,
+    DynamicOpenAPITool,
+    DynamicMCPTool,
+)
+from .cache import (
+    RouteCache,
+    SemanticPrototypeMatcher,
+    RRFEngine,
+    ELORatingTuner,
+    ModeFeedbackStats,
+)
 from .tracing import TraceContext, TraceSpan
 from .compression import ContextCompressor
 from .guardrails import (
@@ -22,6 +42,8 @@ from .guardrails import (
     CheckpointSnapshot,
     PythonASTSecurityGuard,
     SQLASTSecurityGuard,
+    RestrictedSubprocessSandbox,
+    SandboxExecutionResult,
 )
 
 __all__ = [
@@ -32,11 +54,18 @@ __all__ = [
     "ModelTier",
     "RoutingDecision",
     "ExecutionResult",
+    "StreamEventType",
+    "RouterStreamChunk",
     "BaseTool",
     "SimpleFunctionTool",
+    "ToolLoader",
+    "DynamicOpenAPITool",
+    "DynamicMCPTool",
     "RouteCache",
     "SemanticPrototypeMatcher",
     "RRFEngine",
+    "ELORatingTuner",
+    "ModeFeedbackStats",
     "TraceContext",
     "TraceSpan",
     "ContextCompressor",
@@ -52,4 +81,6 @@ __all__ = [
     "CheckpointSnapshot",
     "PythonASTSecurityGuard",
     "SQLASTSecurityGuard",
+    "RestrictedSubprocessSandbox",
+    "SandboxExecutionResult",
 ]

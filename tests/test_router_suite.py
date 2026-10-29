@@ -142,6 +142,87 @@ class TestAdaptiveAgentRouterSuite(unittest.TestCase):
         reviewed = mgr.review_task(task.task_id, approved=True)
         self.assertEqual(reviewed.status, "APPROVED")
 
+    def test_elo_rating_tuner(self):
+        """測試 ELO 動態等級分調校與偏置計算"""
+        from router_app import ELORatingTuner
+        tuner = ELORatingTuner(k_factor=32.0, base_rating=1200.0)
+
+        # 初始狀態
+        self.assertEqual(tuner.stats[AgentMode.REACT].elo_rating, 1200.0)
+        self.assertEqual(tuner.get_routing_bias(AgentMode.REACT), 0.0)
+
+        # 記錄成功呼叫
+        new_rating = tuner.record_feedback(AgentMode.REACT, success=True, latency_ms=150.0)
+        self.assertGreater(new_rating, 1200.0)
+        self.assertGreater(tuner.get_routing_bias(AgentMode.REACT), 0.0)
+
+        # 記錄連續失敗
+        tuner.record_feedback(AgentMode.REACT, success=False)
+        tuner.record_feedback(AgentMode.REACT, success=False)
+        self.assertLess(tuner.stats[AgentMode.REACT].elo_rating, new_rating)
+
+    def test_tool_loader_openapi_and_mcp(self):
+        """測試零代碼工具吸納器 (OpenAPI & MCP)"""
+        from router_app import ToolLoader, RiskLevel
+
+        # 測試 OpenAPI 自動適配
+        dummy_openapi = {
+            "paths": {
+                "/api/v1/orders": {
+                    "get": {"operationId": "list_orders", "summary": "查詢訂單列表"},
+                    "delete": {"operationId": "purge_orders", "summary": "刪除訂單"},
+                }
+            }
+        }
+        tools = ToolLoader.from_openapi_spec(dummy_openapi)
+        self.assertEqual(len(tools), 2)
+        tool_get = next(t for t in tools if t.name == "list_orders")
+        tool_del = next(t for t in tools if t.name == "purge_orders")
+        self.assertEqual(tool_get.risk_level, RiskLevel.LOW)
+        self.assertEqual(tool_del.risk_level, RiskLevel.CRITICAL)
+
+        # 測試 MCP 工具宣告適配
+        dummy_mcp = [
+            {"name": "fetch_stock_quote", "description": "取得台股即時報價", "inputSchema": {}}
+        ]
+        mcp_tools = ToolLoader.from_mcp_spec(dummy_mcp)
+        self.assertEqual(len(mcp_tools), 1)
+        self.assertEqual(mcp_tools[0].name, "fetch_stock_quote")
+
+    def test_subprocess_sandbox(self):
+        """測試實體進程隔離執行沙盒"""
+        from router_app import RestrictedSubprocessSandbox
+
+        sandbox = RestrictedSubprocessSandbox(timeout_seconds=3.0)
+
+        # 1. 安全運算
+        res_safe = sandbox.execute_python_code("print('SANDBOX_OK_VAL_' + str(100 + 20))")
+        self.assertTrue(res_safe.success)
+        self.assertIn("SANDBOX_OK_VAL_120", res_safe.stdout)
+
+        # 2. 危險代碼 (AST 靜態阻斷)
+        res_unsafe = sandbox.execute_python_code("import subprocess; subprocess.run(['ls'])")
+        self.assertFalse(res_safe.blocked_by_guard)
+        self.assertTrue(res_unsafe.blocked_by_guard)
+        self.assertIn("subprocess", res_unsafe.block_reason)
+
+    def test_async_streaming_dispatcher(self):
+        """測試非同步串流輸出引擎 (Async SSE Generator)"""
+        import asyncio
+        from router_app import StreamEventType
+
+        async def _run_stream():
+            events = []
+            async for chunk in self.dispatcher.aprocess_stream("請幫我萃取發票統編與金額"):
+                events.append(chunk.event)
+            return events
+
+        events = asyncio.run(_run_stream())
+        self.assertIn(StreamEventType.ROUTE_START, events)
+        self.assertIn(StreamEventType.ROUTE_DECIDED, events)
+        self.assertIn(StreamEventType.CONTENT_CHUNK, events)
+        self.assertIn(StreamEventType.TASK_COMPLETED, events)
+
 
 if __name__ == "__main__":
     unittest.main()
