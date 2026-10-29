@@ -34,8 +34,9 @@ class VerifierGatedMode(BaseAgentMode):
         # 2. 獨立門控驗證
         high_risk_keywords = ["刪除", "delete", "drop", "轉帳", "下單", "清空", "授權"]
         is_critical = any(kw in prompt.lower() for kw in high_risk_keywords)
+        is_already_approved = context and context.get("approved_by_human", False)
 
-        if is_critical:
+        if is_critical and not is_already_approved:
             steps.append({
                 "stage": "Security_Gatekeeper",
                 "status": "CHALLENGE_REQUIRED",
@@ -54,11 +55,11 @@ class VerifierGatedMode(BaseAgentMode):
             steps.append({
                 "stage": "Security_Gatekeeper",
                 "status": "PASSED",
-                "rules_checked": ["常規安全檢查通過", "無越權行為"]
+                "rules_checked": ["人工簽核授權通過" if is_already_approved else "常規安全檢查通過", "無越權行為"]
             })
             output = (
-                f"【安全門控審核通過】\n"
-                f"指令：「{prompt}」經門控規則檢驗無資安與合規風險，已安全執行完畢。"
+                f"【安全門控審核通過並執行】\n"
+                f"指令：「{prompt}」經門控規則與授權驗證無誤，已安全執行完畢。"
             )
             success = True
 

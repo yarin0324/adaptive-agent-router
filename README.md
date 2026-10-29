@@ -1,136 +1,157 @@
-# Adaptive Agent Router (自適應動態路由器公版)
+# Adaptive Agent Router: 架構設計白皮書與通用核心公版
 
-> 🎯 **「選對模式 × 找對場景 × 打造可靠的 AI Agent」**
-> 
-> 本專案為通用公版架構（Boilerplate / Starter Kit），旨在解決 AI Agent 開發時「一種架構無法包打天下」的痛點。透過 **模式 3 (路由器 Router)** 作為智慧大腦入口，根據使用者的提問意圖、複雜度與風險等級，**自動動態切換**至最合適的 Agent 執行架構模式。
+## 1. 系統設計哲學 (Design Philosophy)
 
----
+在生產環境的 LLM Agent 落地實踐中，單一代理架構（Monolithic Agent）必然面臨「成本、延遲、精確度與安全性」之間的不可調和衝突：
+- 若對所有問題均採用高階多代理協作（Multi-Agent）或反思迴圈（ReAct），將導致簡單查詢產生不可接受的 Token 成本與秒級延遲。
+- 若對複雜任務採用單次生成，則無法避免邏輯幻覺與上下文丟失。
+- 若缺乏執行前門控，自由探索的 Agent 將對資料庫與外部 API 帶來不可逆的破壞性風險。
 
-## 🗺️ 十大 AI Agent 設計模式對照表
-
-本公版完整對照現代企業級 AI Agent 十大設計架構：
-
-| 編號 | 模式名稱 | 適用場景 | 本專案實作模組 |
-| :--- | :--- | :--- | :--- |
-| **1** | **增強型 LLM (單次回應)** | 格式轉換、欄位抽取、文字整理、低延遲問答 | `modes/mode_single_turn.py` |
-| **2** | **反思迴圈 (ReAct)** | 思考 ➜ 執行 ➜ 觀察，無固定路徑的探索任務 | `modes/mode_react.py` |
-| **3** | **路由器 (Router)** | **【核心核心】先分析需求，自動導向最適架構** | `router_app/router.py` |
-| **4** | **規劃 - 執行器 (Planner-Executor)** | 跨步驟長流程、架構拆解、可平行處理之複雜專案 | `modes/mode_planner.py` |
-| **5** | **評估 - 優化 (自我反思 Reflection)** | 法務合約審查、醫療/財務報告、程式碼漏洞挑刺 | `modes/mode_reflection.py` |
-| **6** | **驗證門控 (Verifier-Gated)** | 資料庫寫入/刪除、券商下單、付款授權 (不可逆操作) | `modes/mode_verifier_gated.py` |
-| **7** | **多代理協作 (Multi-Agent)** | 跨部門/跨角色圓桌會議、紅藍軍對抗辯論 | `modes/mode_multi_agent.py` |
-| **8** | **工具使用代理 (Tool Use)** | 精準選擇外部 API、資料庫與系統工具呼叫 | `modes/mode_tool_agent.py` |
-| **9** | **並行自洽 (Ensemble / Self-Consistency)** | 多模型生成、多數決投票、高一致性結論 | `modes/mode_ensemble.py` |
-| **10** | **情境式記憶 (Semantic Memory)** | 長期對話記憶喚醒、使用者習慣累積 | `memory/memory_manager.py` |
+本專案提供一套工業級自適應動態調度中樞（Adaptive Agent Dispatcher）。透過前置輕量路由器（Router），在毫秒級時間內評估提問的語意維度、步驟深度與風險等級，動態將任務派發至十大標準設計模式（Design Patterns），並在執行鏈路中提供熔斷保護、非同步人機審批狀態機與分散式可觀測性。
 
 ---
 
-## 🏗️ 系統架構運作流程
+## 2. 系統架構與狀態遷移 (State Machine Architecture)
+
+系統核心由四層管線構成：快取與安全性快篩層、語意路由決策層、執行引擎層，以及邊界防護與遙測層。
 
 ```mermaid
 flowchart TD
-    User([使用者提問]) --> Router{"【模式 3】AdaptiveRouter<br/>(安全性快篩 + 規則啟發 + LLM 語義判定)"}
+    Request["調用請求 (User Request)"] --> CacheCheck{"RouteCache 快取檢索"}
+    CacheCheck -- "命中 (0ms)" --> ModeRegistry
+    CacheCheck -- "未命中" --> GuardrailCheck{"安全關鍵字靜態快篩"}
     
-    Router -->|"簡單明確 / 格式抽取"| M1["【模式 1】增強型單次回應"]
-    Router -->|"探索性問題 / 需多次觀察"| M2["【模式 2】ReAct 思考迴圈"]
-    Router -->|"龐大任務 / 長流程拆解"| M4["【模式 4】規劃-執行器 (Planner-Executor)"]
-    Router -->|"品質敏感 / 需挑蟲修正"| M5["【模式 5】自我反思優化 (Reflection)"]
-    Router -->|"不可逆 / 高風險操作"| M6["【模式 6】驗證門控 (Verifier-Gated / 需授權)"]
-    Router -->|"跨領域 / 角色辯論"| M7["【模式 7】多代理協作 (Multi-Agent)"]
-    Router -->|"靈活工具調用"| M8["【模式 8】工具使用代理 (Tool Agent)"]
-    Router -->|"需要最高信度 / 投票"| M9["【模式 9】並行自洽 (Ensemble)"]
+    GuardrailCheck -- "高風險 / 不可逆" --> SuspendNode["建立 SuspendedTask<br/>(掛起並等待外部審批)"]
+    GuardrailCheck -- "常規操作" --> SemanticRouter["AdaptiveRouter 語意決策器"]
 
-    M1 & M2 & M4 & M5 & M6 & M7 & M8 & M9 --> Memory[("【模式 10】情境式記憶庫")]
-    Memory --> Output([標準化輸出結果 ExecutionResult])
+    SemanticRouter --> EscalationNode{"信心與步數評估<br/>(Escalation Gate)"}
+    EscalationNode --> ModeRegistry["模式註冊表 (Mode Registry)"]
+
+    subgraph ExecutionModes["執行模式引擎 (Execution Modes)"]
+        M1["Mode 1: Single-Turn (單次增強)"]
+        M2["Mode 2: ReAct (思考-執行-觀察迴圈)"]
+        M4["Mode 4: Planner-Executor (任務拆解與並行)"]
+        M5["Mode 5: Reflection (生成-批評-改寫)"]
+        M6["Mode 6: Verifier-Gated (安全門控執行)"]
+        M7["Mode 7: Multi-Agent Debate (攻防辯論與仲裁)"]
+        M8["Mode 8: Tool Agent (動態工具調用)"]
+        M9["Mode 9: Ensemble (並行採樣與自洽投票)"]
+    end
+
+    ModeRegistry --> ExecutionModes
+    ExecutionModes --> BreakerGuard{"TaskCircuitBreaker 熔斷監控<br/>(Token / 步數 / 超時)"}
+    BreakerGuard -- "超出預算" --> TrippedResponse["強制截斷並降級回傳"]
+    BreakerGuard -- "正常完成" --> FinalOutput["ExecutionResult (附帶 TraceContext)"]
 ```
 
 ---
 
-## 📂 專案目錄結構
+## 3. 十大 Agent 設計模式分流矩陣 (Decision Matrix)
 
-```text
-AdaptiveAgentRouter/
-├── README.md                  # 本說明文件
-├── requirements.txt           # 依賴套件清單
-├── .env.example               # 環境變數與模型設定範本
-├── router_app/                # 核心模組套件
-│   ├── __init__.py            # 統一導出入口
-│   ├── types.py               # Pydantic 資料型別 (RoutingDecision, ExecutionResult)
-│   ├── config.py              # 設定與模型配置
-│   ├── router.py              # 核心動態路由器 (安全門控 + 規則 + LLM 分流)
-│   ├── dispatcher.py          # 自適應調度總管 (統一對外 API)
-│   ├── modes/                 # 十大模式實作目錄
-│   │   ├── base.py            # BaseAgentMode 抽象介面
-│   │   ├── mode_single_turn.py
-│   │   ├── mode_react.py
-│   │   ├── mode_planner.py
-│   │   ├── mode_reflection.py
-│   │   ├── mode_verifier_gated.py
-│   │   ├── mode_multi_agent.py
-│   │   ├── mode_tool_agent.py
-│   │   └── mode_ensemble.py
-│   ├── memory/                # 記憶體模組
-│   │   └── memory_manager.py
-│   └── tools/                 # 可插拔工具模組
-│       ├── base_tool.py       # BaseTool 標準介面
-│       └── common_tools.py    # 預設通用工具 (DB, Search, Calculator)
-└── examples/                  # 應用示範
-    ├── quickstart.py          # 基礎快速啟動範例
-    ├── plug_into_ocr_example.py   # 套進 OCR 發票辨識專案示範
-    └── plug_into_stock_example.py # 套進台股投研風控專案示範
-```
+| 模式識別碼 | 架構模式名稱 | 決策特徵與觸發條件 | 延遲特徵 | 容錯與驗證策略 |
+| :--- | :--- | :--- | :--- | :--- |
+| `mode_1_single_turn` | 增強型單次回應 | 結構化資料抽取、單表欄位轉換、摘要、封閉式問答 | 最低 (< 1s) | 一次性推論，無重試機制 |
+| `mode_2_react` | 反思迴圈 (ReAct) | 動態探索、日誌排查、多步追蹤、非固定路徑問題 | 中等 (1-3s) | 思考-行動-觀察三段迭代，上限預設 5 輪 |
+| `mode_3_router` | 動態路由器 | 系統母體入口，負責意圖分類、複雜度與風險標記 | 極低 (< 200ms) | 精確雜湊快取 ➜ 靜態規則 ➜ 輕量 LLM |
+| `mode_4_planner` | 規劃-執行器 | 跨模組長流程、架構設計、百萬級批次作業拆解 | 高 (3-8s) | DAG 依賴拆解，工作者並行執行後彙整校驗 |
+| `mode_5_reflection` | 評估-優化反思 | 商業合約、法務合規、核心演算法優化、研究論文審查 | 高 (3-6s) | Generator ➜ Critic 挑刺 ➜ Optimizer 修正 (2-3 輪) |
+| `mode_6_verifier_gated` | 驗證門控 | 包含 DELETE, DROP, 付款, 券商下單等不可逆指令 | 依審批而定 | 觸發 TaskSuspensionManager 掛起，需外部顯式授權 |
+| `mode_7_multi_agent` | 對抗辯論協作 | 涉及跨領域權衡、架構決策評估、高爭議性方案論證 | 偏高 (3-5s) | 三權分立：正方立論 ➜ 紅隊挑刺 ➜ 首席仲裁者定案 |
+| `mode_8_tool_use` | 工具使用代理 | 需動態挑選與組合外部 API、SQL、系統命令之通用場景 | 中等 (1-3s) | 動態 Schema 匹配與執行例外捕獲 |
+| `mode_9_ensemble` | 並行自洽投票 | 複雜數學推演、邏輯定理驗證、極端低容錯情境 | 高 (多路並行) | 多路並行採樣後多數決 (Consensus Voting) |
+| `mode_10_memory` | 情境式長期記憶 | 使用者偏好錨定、歷史決策繼承、跨階段狀態維持 | 低 (< 50ms) | 上下文注入前先檢索向量/語意快照 |
 
 ---
 
-## 🚀 快速上手 (Quickstart)
+## 4. 關鍵防禦機制 (Guardrails & Resilience)
 
-### 1. 安裝環境
-```bash
-cd /Users/yueh-lin/SynologyDrive/02_Work_Projects/soetek/SourceCode/AdaptiveAgentRouter
-pip install -r requirements.txt
-```
+### 4.1 任務熔斷器 (TaskCircuitBreaker)
+為防止 ReAct 模式或 Multi-Agent 對話陷入循環震盪，核心實例化每項任務獨立的生命週期守護者：
+- **最大步數門檻**：單一任務上限預設為 8 步，超標即拋出 `CircuitBreakerException`。
+- **Token 預算限制**：單一任務硬性上限 8,000 Tokens，防範惡意提示詞或迴圈燒乾配額。
+- **超時限制**：30 秒非同步中斷保護。
 
-### 2. 執行示範
-執行快速全模式自動分流演示：
-```bash
-python examples/quickstart.py
-```
+### 4.2 非同步審批掛起機制 (Suspend & Resume State Machine)
+針對微服務與 Web API 架構，高風險操作絕不採用本機阻塞式 `input()`：
+1. 偵測到 `CRITICAL` 指令時，由 `TaskSuspensionManager` 序列化上下文並持久化，生成唯一的 `task_id`。
+2. 系統向呼叫端回傳 `SUSPENDED` 狀態與審批憑證，立即釋放 Worker 執行緒。
+3. 外部系統（如 Webhook、管理後台或 Slack 命令）呼叫 `dispatcher.resume_task(task_id, approved=True)`，載入快照並放行執行。
+
+### 4.3 鏈路可觀測性 (Distributed Tracing)
+遵循 OpenTelemetry 語意規範，為每次調用生成標準 `TraceContext`：
+- 記錄 `trace_id`、`span_id`、各階段耗時與狀態。
+- 透過 `ExecutionResult.metadata["trace"]` 導出標準結構化 JSON，可無縫對接 Datadog、Jaeger 或 ELK 日誌體系。
 
 ---
 
-## 🔌 如何在其他專案中直接套用？
+## 5. 模組引用與介面合約 (API Contract)
 
-只要 3 步即可將此公版嵌入任何既有專案：
+### 5.1 快速引入現有專案
+在既有 Python 系統中，僅需 3 個步驟即可掛載本路由器：
 
 ```python
 import sys
-# 1. 引入公版路徑
-sys.path.append("/path/to/SourceCode/AdaptiveAgentRouter")
+sys.path.append("/path/to/AdaptiveAgentRouter")
 
 from router_app import AdaptiveAgentDispatcher, BaseTool
 
-# 2. 定義你的專屬業務工具 (例如 OCR 辨識、ERP 資料庫查詢、股市即時報價)
-class MyProjectTool(BaseTool):
-    name = "custom_project_worker"
-    description = "執行專案核心任務"
-    risk_level = "low"  # 或 "critical"
+# 步驟 1: 實作專案自訂業務工具
+class InvoiceOCRTool(BaseTool):
+    name = "invoice_ocr_parser"
+    description = "執行統一發票文字版面分析與欄位抽取"
+    risk_level = "low"
 
-    def execute(self, **kwargs):
-        return "執行完畢！"
+    def execute(self, image_path: str = "", **kwargs):
+        # 專案內部既有 OCR 呼叫
+        return {"invoice_no": "AA-12345678", "amount": 5200}
 
-# 3. 實例化總管並使用
-agent = AdaptiveAgentDispatcher(custom_tools=[MyProjectTool()])
+# 步驟 2: 初始化調度器並註冊工具
+dispatcher = AdaptiveAgentDispatcher(
+    custom_tools=[InvoiceOCRTool()],
+    enable_logging=True
+)
 
-# 丟入任何問題，系統自動幫你決定該走單次、ReAct、Planner 還是安全門控！
-result = agent.process("請幫我規劃一套完整系統方案")
+# 步驟 3: 執行調度
+result = dispatcher.process("請辨識發票 invoice_01.png 並結構化輸出")
 print(result.output)
+```
+
+### 5.2 外部審批恢復範例
+```python
+# 1. 提交高風險請求
+result = dispatcher.process("連線正式資料庫，清空 orders 測試表")
+
+if result.metadata.get("status") == "SUSPENDED":
+    task_id = result.metadata["task_id"]
+    # ... 傳送至審批系統，等待管理員核准 ...
+
+    # 2. 外部信號喚醒任務
+    approved_result = dispatcher.resume_task(task_id, approved=True)
+    print(approved_result.output)
 ```
 
 ---
 
-## 🛡️ 安全門控機制 (Human-in-the-Loop)
+## 6. 目錄結構與責任邊界
 
-當使用者提問包含以下特徵時，系統**絕對不會直接執行**，而是切換至 `mode_6_verifier_gated`：
-- 關鍵字快篩：`刪除`、`drop`、`清空`、`下單`、`轉帳`、`付款`
-- 風險等級自動標記為 `CRITICAL`
-- 觸發人工簽核審批攔截，防止 Agent 誤操作造成系統不可逆損害。
+```text
+AdaptiveAgentRouter/
+├── README.md                      # 架構白皮書與技術規格書
+├── requirements.txt               # 基礎依賴
+├── .env.example                   # 環境變數與模型端點配置
+├── router_app/                    # 核心函式庫
+│   ├── types.py                   # 資料模型契約 (RoutingDecision, ExecutionResult)
+│   ├── config.py                  # 系統環境參數
+│   ├── router.py                  # 動態路由中樞 (規則快篩 + LLM 語意推論)
+│   ├── dispatcher.py              # 調度總管 (統一對外介面與生命週期管理)
+│   ├── cache/                     # 路由快取層 (LRU Hash Cache)
+│   ├── tracing/                   # 鏈路追蹤層 (TraceContext, OpenTelemetry 格式)
+│   ├── guardrails/                # 安全與防禦層 (CircuitBreaker, Suspension, Escalation)
+│   ├── memory/                    # 情境式記憶層 (Contextual Memory)
+│   ├── modes/                     # 十大 Agent 模式實作 (SingleTurn, ReAct, Planner...)
+│   └── tools/                     # 工具抽象規範 (BaseTool, FunctionTool)
+└── examples/                      # 整合驗證示範
+    ├── quickstart.py              # 系統驗證整合測試
+    ├── plug_into_ocr_example.py   # OCR 專案掛載示範
+    └── plug_into_stock_example.py # 金融風控專案掛載示範
+```
