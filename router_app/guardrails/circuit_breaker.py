@@ -1,6 +1,6 @@
 """
 系統熔斷器與 Token 計量防護 (Circuit Breaker & Token Budget Guard)
-借鏡自 TaiwanStockMcpServer/core/circuit_breaker.py
+實作微服務斷路器模式 (Michael Nygard, Release It!)，專為 LLM Agent 長迴圈設計。
 防止 ReAct 思考迴圈或多代理協作陷入死循環、暴走或耗盡 Token 預算。
 """
 

@@ -65,78 +65,53 @@ flowchart TD
 
 ---
 
-## 2. 核心架構特色與技術支柱 (Architectural Pillars)
+## 2. 生態系架構定位與競品對比 (Competitive Landscape)
 
-### 2.1 微核心熱插拔架構 (Microkernel Plug-and-Play Engine)
-調度中樞 `AdaptiveAgentDispatcher` 與各專案業務邏輯徹底解耦。使用者只需定義繼承自 `BaseTool` 的業務工具，即可無縫掛載進系統；所有執行模式（Modes）均實作統一介面契約，具備獨立擴充與替換能力。
+下表歸納 AdaptiveAgentRouter 與當前主流開源專案之核心定位差異：
 
-### 2.2 雙維度算力矩陣路由 (2D Matrix: Pattern × Model Tier)
-決策輸出不僅包含架構模式，更同時指派最經濟的模型算力階層（FAST / STANDARD / REASONING）：
-- 輕量抽取與工具調用自動綁定輕量模型（如 `gpt-4o-mini` / `gemini-1.5-flash`）。
-- 嚴格反思、長流程規劃與專家辯論自動升格至頂級推理模型（如 `claude-3-5-sonnet` / `o1`），達成架構與 Token 成本雙重最佳化。
-
-### 2.3 編譯器級 AST 語法樹護欄 (Compiler-Level AST Security Guard)
-不依賴易被繞過的正則表達式，直接在語法編譯階段解析語法樹：
-- **Python AST Guard**：遍歷語法樹節點，物理阻斷 `eval`, `exec`, `open`, `__import__` 與危險系統模組（`os`, `subprocess`, `sys`）。
-- **SQL AST Guard**：審查查詢結構，強制要求唯讀（`SELECT` / `WITH`），物理阻斷包含註解混淆的 `DROP`, `DELETE`, `TRUNCATE`, `ALTER`。
-
-### 2.4 上下文與 Token 智慧壓縮 (Context Compression & Token Pruner)
-解決多輪 ReAct 探索與巨型資料庫查詢帶來的上下文膨脹（Lost-in-the-Middle 困境）：
-- **結構化資料折疊**：資料庫回傳 100 筆資料時，自動保留 Top 3 與 Tail 2 樣本並附帶聚合統計，**壓縮率達 80% 以上**。
-- **語意冗餘清洗**：自動消除連續換行、無效空格與裝飾性符號。
-
-### 2.5 零延遲快取與語意原型匹配 (Two-Stage Route Caching)
-- **第一階 (Exact Hash)**：基於 SHA-256 記憶體 LRU 快取，相同提問 **0ms 瞬間命中**。
-- **第二階 (Semantic Prototype)**：N-gram 向量空間語意原型比對，同義詞置換在 **5ms 內快速命中**，免去前置 LLM 呼叫。
-
-### 2.6 任務級熔斷器與防暴走護欄 (Task Circuit Breaker & Token Guard)
-為每個任務實例化獨立的 `TaskCircuitBreaker` 生命週期監控：
-- **最大步數門檻**：預設上限 8 步，超標立即主動熔斷。
-- **Token 預算硬上限**：單一任務上限預設 8,000 Tokens，杜絕帳單暴增風險。
-- **逾時熔斷**：30 秒非同步中斷保護。
-
-### 2.7 非同步人機協同審批狀態機 (Non-blocking Human-in-the-Loop Suspension)
-採用微服務適配的有限狀態機（FSM）：
-1. 偵測到 `CRITICAL` 不可逆操作時，`TaskSuspensionManager` 序列化上下文生成 `task_id`，立即釋放 Worker 執行緒。
-2. 外部系統（Webhook、微服務 API、Slack 命令）發送審批信號後，呼叫 `dispatcher.resume_task(task_id, approved=True)` 喚醒任務並放行。
-
-### 2.8 雙向安全衛兵與個資脫敏 (Bi-directional Guardrails)
-- **Input Rail**：主動阻斷 Prompt Injection 與系統指令覆蓋 (System Override)。
-- **Output Rail**：交付前自動掃描並脫敏機敏身分證字號、信用卡號、電子郵件與 API Key，替換為 `[REDACTED_PII]`。
-
-### 2.9 動態重規劃器與任務檢查點 (Dynamic Replanner & Task Checkpointer)
-借鏡 Plan-and-Solve Prompting (Wang et al., 2023) 與 LangGraph Checkpointer：
-- **Dynamic Replanner**：解決靜態計畫盲跑問題。每當工作者完成一個子步驟，Replanner 自動檢視中間結果，動態自適應追加、修改或修剪後續步驟。
-- **Task Checkpointer**：每步序列化不可變快照（Snapshot），支援故障中斷時的斷點續傳。
-
-### 2.10 RRF 倒數排名融合記憶檢索 (Reciprocal Rank Fusion - RRF Engine)
-借鏡 Cormack et al. (SIGIR 2009) 論文與 MySecondBrain 實踐，情境記憶層原生內建純 Python RRF 混合召回：
-- 結合**精確關鍵字排名 (Lexical Rank)** 與 **語意餘弦相似度排名 (Semantic Rank)**。
-- 透過名次倒數公式 $RRF(d) = \sum \frac{w}{k + r(d)}$ 進行多數決投票，兼顧專有名詞代號的精確命中與抽象概念的關聯召回。
-
-### 2.11 對抗式量化評審反思 (Reflexion Rubric Scoring)
-借鏡 Reflexion (Shinn et al., NeurIPS 2023)，徹底消除自評確認偏差：
-- 獨立 Critic 依據三維量化指標表 (Rubric) 打分：邏輯嚴謹度、邊界防禦度、漏洞覆蓋度。
-- **加權總分門檻強制要求 $\ge 8.5$ 分**，未達標強制退回重寫優化。
-
-### 2.12 影子乾跑變更預覽 (Dry-Run Simulation Diff)
-借鏡 Terraform Plan 雲原生治理哲學：
-- 門控機制在掛起任務前，自動模擬輸出**影響評估報告**（異動資料表、受影響記錄數、預估曝險金額）。
-- 審批人員依據客觀 Diff 報告進行審核放行，消除黑盒操作恐懼。
-
-### 2.13 負反饋避坑記憶 (Negative Observation Memory)
-借鏡 AutoGPT 避坑機制：
-- ReAct 模式在遭遇工具執行例外或無效端點時，自動將該動作加入 `Forbidden Actions` 禁區清單。
-- 下一輪迭代強制注入避坑提示，杜絕 Agent 原地死磕無效路徑。
-
-### 2.14 意見收斂早停定案 (Debate Early Stopping by Convergence)
-借鏡 MetaGPT SOP 協調哲學：
-- 首席仲裁者每輪動態計算正反方論點之「歧異度 (Disagreement Delta)」。
-- 若歧異度 $\le 0.15$，代表已取得架構共識，第 2 輪即時觸發早停 (Early Stop) 定案，節省 30%+ 辯論 Token 消耗。
+| 開源專案 / 概念 | 它們在做什麼？ (Scope) | 缺乏的關鍵能力（AdaptiveAgentRouter 核心差異化） |
+| :--- | :--- | :--- |
+| **RouteLLM** *(LMSYS)* | **模型級路由 (Model Routing)**<br>分析問題該派給便宜的輕量模型還是昂貴的頂級推理模型。 | **只管「換模型」，不管「換架構」**。<br>無法依任務複雜度與不確定性動態切換 ReAct、Planner DAG 拆解或多代理辯論。 |
+| **Semantic Router** *(Aurelio AI)* | **語意向量快篩路由**<br>使用 Embedding 相似度決定走 RAG、查 SQL 或純閒聊。 | **缺少 Agent 執行引擎與生命週期治理**。<br>僅為單點向量比對器，缺乏後續任務迴圈執行、斷路器防護與狀態維護。 |
+| **LangGraph / CrewAI Supervisor** | **主管代理分派 (Supervisor Pattern)**<br>由單一 Leader Agent 分解並指派工作給 Worker Agents。 | **通常綁死在特定多代理框架內**。<br>每個專案需從頭手寫 StateGraph，缺乏通用的開箱即用 10 大架構模式公版與雙維度算力分流。 |
+| **Guardrails AI / NeMo Guardrails** | **安全與合規檢查**<br>檢查 Prompt 與回應是否包含個資、偏見或 Prompt Injection。 | **只管攔截，沒有調度能力**。<br>缺乏任務掛起 (Suspend & Resume)、負反饋避坑與自適應模式自動升級 (Escalation)。 |
 
 ---
 
-## 3. 效能與成本基準 (Performance & Cost Benchmark)
+## 3. 核心架構特色 (Core Architectural Pillars)
+
+- **微核心熱插拔架構 (Microkernel & Plug-and-Play)**：調度中樞 `AdaptiveAgentDispatcher` 與業務邏輯徹底實體解耦，透過 `BaseTool` 契約無縫掛載，執行模式具備獨立擴充與替換能力。
+- **雙維度算力矩陣路由 (2D Routing: Pattern × Model Tier)**：決策引擎同時輸出架構模式與最佳算力階層（`FAST` / `STANDARD` / `REASONING`），兼顧系統延遲與 Token 成本。
+- **編譯器級 AST 語法樹護欄 (Compiler AST Security Guard)**：跳脫易被註解混淆繞過的正則表達式，直接在語法樹層級物理阻斷危險 Python 系統調用與破壞性 SQL 語句（物理繞過率 0%）。
+- **全鏈路任務治理與安全機制 (Task Governance & Resilience)**：
+  - **任務級熔斷器 (TaskCircuitBreaker)**：步數閥值、Token 預算與逾時三重硬性防禦，根除 Agent 死循環。
+  - **非同步人機審批 (HITL Suspension)**：CRITICAL 操作自動生成掛起快照並釋放工作緒，支援外部 Webhook / API 喚醒。
+  - **雙向安全衛兵 (Bi-directional Rails)**：Input 阻斷 Prompt Injection，Output 自動脫敏身分證、信用卡與 API Key。
+- **極致時延與上下文壓縮 (Token & Latency Optimization)**：
+  - **雙階路由快取**：SHA-256 精確雜湊（0ms 命中）+ N-gram 原型比對（5ms 命中）。
+  - **結構化資料折疊 (ContextCompressor)**：巨型查詢自動保留前後樣本與聚合統計，節省 85%+ 上下文。
+  - **純 Python RRF 混合檢索**：融合關鍵字與語意概念排名，兼顧專有名詞精確度與語意關聯性。
+
+---
+
+## 4. 支援 Agent 模式與進階能力矩陣 (Agent Modes Matrix)
+
+| 模式編號與代號 | 模式名稱 | 核心適用場景 | 預設算力階層 | 進階工程機制 (Advanced Capabilities) | 學術依據 / 設計借鏡 |
+| :--- | :--- | :--- | :---: | :--- | :--- |
+| `mode_1_single_turn` | 增強型單次回應 | 欄位抽取、格式清理、摘要生成 | `FAST` | 結構化資料折疊、PII 輸出脫敏 | Single-turn Prompting |
+| `mode_2_react` | 探索反思迴圈 | API 偵錯、動態假設驗證、邊做邊看 | `STANDARD` | **負反饋避坑記憶 (Negative Memory)**：自動記錄失敗動作禁行清單，防原地死磕 | ReAct (Yao et al., 2022) |
+| `mode_3_plan_solve` | 基礎規劃執行 | 已知多步驟順序流程 | `STANDARD` | 依序調度子步驟、即時進度追蹤 | Plan-and-Solve (Wang et al., 2023) |
+| `mode_4_planner` | 動態規劃執行器 | 跨模組多步驟任務拆解與並行調度 | `REASONING` | **動態重規劃 (Dynamic Replanner)**：每步依據新發現動態重編計畫 + **Checkpointer 快照** | LangGraph State / Plan-and-Execute |
+| `mode_5_reflection` | 評估-優化反思 | 商業合約審查、代碼安全審計 | `REASONING` | **對抗式量化評審 (Reflexion Rubric)**：獨立 Critic 依量化指標嚴格打分，強制 $\ge 8.5$ 分 | Reflexion (Shinn et al., NeurIPS 2023) |
+| `mode_6_verifier_gated` | 驗證門控人機協同 | 庫存刪除、資金調度等不可逆操作 | `STANDARD` | **變更差異乾跑 (Dry-Run Diff)**：掛起前預覽受影響表與風險曝險 + **非同步 FSM 掛起** | Terraform Plan / HITL Governance |
+| `mode_7_multi_agent` | 對抗辯論協作 | 重大架構選型、多角度風險評估 | `REASONING` | **意見收斂早停 (Early Stop by Convergence)**：正反方歧異度 $\le 0.15$ 即刻定案，節省 30%+ Token | MetaGPT / Society of Mind |
+| `mode_8_tool_agent` | 專用工具代理 | 單點 API 串接、特定資料庫查詢 | `FAST` | **編譯器 AST 語法樹阻斷**、嚴格輸入型別校驗 | Toolformer (Schick et al., 2023) |
+| `mode_9_ensemble` | 並行自洽投票 | 高可靠性邏輯推理、單點容錯 | `STANDARD` | 多路並行採樣、多數決加權收斂 | Self-Consistency (Wang et al., 2022) |
+| `mode_10_memory_augmented`| 情境式記憶增強 | 個人化偏好、長期規範錨定 | `FAST` | **純 Python RRF 倒數排名融合** (Lexical + Semantic)，免大型向量庫依賴 | SIGIR 2009 RRF Formula |
+
+---
+
+## 5. 效能與成本基準 (Performance & Cost Benchmark)
 
 本章節量化數據由**本機物理實測腳本**與**學術權威文獻**交叉對照而得。所有數值均可透過執行 `python examples/benchmark.py` 進行 100% 重現實測。
 
@@ -152,9 +127,9 @@ flowchart TD
 
 ---
 
-## 4. 安裝與快速整合 (Quickstart Installation)
+## 6. 安裝與快速整合 (Quickstart Installation)
 
-### 4.1 透過 pip 模組化安裝
+### 6.1 透過 pip 模組化安裝
 ```bash
 # 從 GitHub 倉庫直接安裝
 pip install git+https://github.com/yarin0324/adaptive-agent-router.git
@@ -165,7 +140,7 @@ cd adaptive-agent-router
 pip install -e .
 ```
 
-### 4.2 三步驟掛載至業務系統
+### 6.2 三步驟掛載至業務系統
 ```python
 from router_app import AdaptiveAgentDispatcher, BaseTool
 
@@ -191,23 +166,23 @@ print(result.output)
 
 ---
 
-## 5. 企業實戰案例庫 (Production Case Studies)
+## 7. 跨領域整合實戰案例 (End-to-End Integration Examples)
 
 專案提供兩套不同領域的端到端生產範例，位於 `examples/` 目錄：
-- **發票與憑證 OCR 智慧解析**：[`examples/plug_into_ocr_example.py`](examples/plug_into_ocr_example.py)
+- **大量票據與憑證 OCR 智慧解析**：[`examples/plug_into_ocr_example.py`](examples/plug_into_ocr_example.py)
   展示如何將模糊辨識問題自動導向 ReAct 邊做邊調參數，並將批次十萬張憑證導向 Planner 拆解。
 - **量化投資與金融智慧風控**：[`examples/plug_into_stock_example.py`](examples/plug_into_stock_example.py)
   展示下單交易指令如何觸發 `Verifier-Gated` 人機審批掛起，以及重大決策如何啟動正反方多代理對抗辯論。
 
 ---
 
-## 6. 安全性與漏洞回報 (Security Policy)
+## 8. 安全性與漏洞回報 (Security Policy)
 
 本專案將執行安全性列為最高優先級別。若您在 AST 語法解析器、安全護欄或狀態機中發現潛在安全漏洞，請**切勿公開提出 Issue**。請發送電子郵件至維護團隊信箱進行負責任的漏洞披露，我們將在 48 小時內進行評估與修補發版。
 
 ---
 
-## 7. 授權條款與貢獻指南 (License & Contributing)
+## 9. 授權條款與貢獻指南 (License & Contributing)
 
 - 本專案採用 [MIT License](LICENSE) 授權開源。
-- 歡迎透過 Pull Request 貢獻新的 Agent 模式實作、語意原型字典或安全檢驗規則。提交前請確保通過 `python examples/quickstart.py` 整合測試。
+- 歡迎透過 Pull Request 貢獻新的 Agent 模式實作、語意原型字典或安全檢驗規則。提交前請確保通過 `python -m unittest tests/test_router_suite.py` 測試。

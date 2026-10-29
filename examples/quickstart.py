@@ -115,7 +115,7 @@ def main():
     print(compressed_output)
     print("-" * 65)
 
-    # 驗證特性 7: RRF (Reciprocal Rank Fusion) 混合檢索 (借鏡 MySecondBrain)
+    # 驗證特性 7: RRF (Reciprocal Rank Fusion) 混合檢索 (基於 Cormack et al. 2009)
     print("\n[RRF Hybrid Retrieval Test] 驗證倒數排名融合檢索 (兼顧精確代碼與抽象語意)...")
     memory = dispatcher.memory
     memory.save_memory("u1", "s1", "架構決策", "本專案強制要求所有 SQL 查詢必須加上 WITH (NOLOCK) 防死鎖機制。")

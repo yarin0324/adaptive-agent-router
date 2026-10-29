@@ -1,6 +1,6 @@
 """
 倒數排名融合混合檢索與路由引擎 (Reciprocal Rank Fusion - RRF Engine)
-借鏡自 MySecondBrain/mcp_server/rrf_search.py 與 Cormack et al. (SIGIR 2009)
+基於 Cormack, Clarke & Buettcher (SIGIR 2009) 混合檢索融合演算法。
 融合「精確關鍵字排名 (Lexical Rank)」與「語意概念排名 (Semantic Vector Rank)」，
 透過倒數名次多數決投票消除各自盲區，無需繁複分數標準化，純 Python 零重量依賴實作。
 """

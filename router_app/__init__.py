@@ -11,6 +11,9 @@ from .tracing import TraceContext, TraceSpan
 from .compression import ContextCompressor
 from .guardrails import (
     TaskCircuitBreaker,
+    CircuitBreakerConfig,
+    CircuitBreakerException,
+    AdaptiveEscalationEngine,
     TaskSuspensionManager,
     SuspendedTask,
     InputSecurityRail,
@@ -38,6 +41,9 @@ __all__ = [
     "TraceSpan",
     "ContextCompressor",
     "TaskCircuitBreaker",
+    "CircuitBreakerConfig",
+    "CircuitBreakerException",
+    "AdaptiveEscalationEngine",
     "TaskSuspensionManager",
     "SuspendedTask",
     "InputSecurityRail",
