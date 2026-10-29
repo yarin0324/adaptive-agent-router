@@ -49,6 +49,15 @@ from .guardrails import (
     BaseStateStorage,
     MemoryStateStorage,
     SQLiteStateStorage,
+    TamperProofAuditLogger,
+    AuditRecord,
+    IndirectInjectionSanitizer,
+    ToolRBACGuard,
+    PermissionDeniedException,
+    require_roles,
+    SlidingWindowRateLimiter,
+    RateLimitConfig,
+    SystemPromptLeakGuard,
 )
 
 __all__ = [
@@ -95,4 +104,13 @@ __all__ = [
     "BaseStateStorage",
     "MemoryStateStorage",
     "SQLiteStateStorage",
+    "TamperProofAuditLogger",
+    "AuditRecord",
+    "IndirectInjectionSanitizer",
+    "ToolRBACGuard",
+    "PermissionDeniedException",
+    "require_roles",
+    "SlidingWindowRateLimiter",
+    "RateLimitConfig",
+    "SystemPromptLeakGuard",
 ]

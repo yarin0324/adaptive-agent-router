@@ -243,7 +243,71 @@ print(result.to_battle_card())
 
 ---
 
-## 8. 跨領域整合實戰案例 (End-to-End Integration Examples)
+## 8. 企業級資安合規與 OWASP Top 10 for LLM 防禦矩陣 (Enterprise Security & OWASP LLM Matrix)
+
+為滿足金融機構、跨國企業與嚴苛合規場域（SOC 2 Type II、ISO 27001、GDPR），AdaptiveAgentRouter 原生深度整合針對 **OWASP Top 10 for Large Language Model Applications (2025/2026)** 的端到端防禦體系：
+
+### 8.1 OWASP LLM 落地防禦矩陣
+
+| OWASP 漏洞類別 | 風險場景與攻擊手法 | AdaptiveAgentRouter 核心防禦模組 | 防禦機制與物理阻斷原理 |
+| :--- | :--- | :--- | :--- |
+| **LLM01: Prompt Injection** | 間接注入、零寬隱寫字元、隱藏 HTML 註解、指令覆蓋語句 (`system: override`) | `IndirectInjectionSanitizer`<br>`InputSecurityRail` | 剝除 `\u200b` 零寬字元、消除隱藏 HTML 註解，並將覆蓋指令替換為 `[NEUTRALIZED_COMMAND]`。 |
+| **LLM02: Sensitive Information Disclosure** | 模型輸出無意間洩漏身分證、信用卡號、高權限 API Key 或資料庫連線 | `OutputPIISanitizerRail` | 正則表達式與熵值檢測，自動將身分證、信用卡、API Key 與 Email 即時脫敏為 `[REDACTED_*]`。 |
+| **LLM03: Supply Chain Vulnerabilities** | 外掛工具與第三方 API 規格遭竄改或植入惡意端點 | `ToolLoader`<br>`ToolRBACGuard` | OpenAPI 3.0 / FastMCP 載入時依 HTTP Method 自動標定風險等級，並套用 RBAC 權限角色綁定。 |
+| **LLM04: Data and Model Poisoning** | 惡意使用者藉由造假反饋污染自適應權重偏置 | `ELORatingTuner` | 引入 ELO 衰減因子（K-factor）、信心度置信區間檢定與異常評分過濾，杜絕操縱攻擊。 |
+| **LLM05: Improper Output Handling** | 模型生成包含破壞性語句之 Python / SQL 代碼並由系統自動執行 | `PythonASTSecurityGuard`<br>`SQLASTSecurityGuard`<br>`RestrictedSubprocessSandbox` | 編譯器 AST 語法樹底層阻斷 `os.system`、動態反射與 `DROP/DELETE/GRANT`，搭配作業系統隔離沙盒。 |
+| **LLM06: Excessive Agency** | 代理人擁有過高權限，越權呼叫管理或財務交易工具 | `ToolRBACGuard`<br>`Verifier-Gated (HITL)` | 嚴格最小特權原則（Least Privilege）；高危操作自動觸發非同步狀態機掛起（FSM Suspension）等待審核。 |
+| **LLM07: System Prompt Leakage** | 誘導攻擊迫使模型吐出內部 System Prompt、商業機密條款與安全指令 | `SystemPromptLeakGuard` | 輸出端雙向特徵比對，自動偵測並中和 `You are an AI assistant designed to...` 等機敏規則。 |
+| **LLM08: Vector Weaknesses & Cache Poisoning** | 惡意注入特製字串污染語意快取，導致後續使用者命中受害路徑 | `RouteCache` | 採用 SHA-256 雙向精確比對、LRU 記憶體上限防爆，並隔離跨 Tenant / User 快取空間。 |
+| **LLM09: Misinformation & Overreliance** | 模型產生邏輯漏洞、條款幻覺或虛假事實 | `Reflexion Rubric Scoring`<br>`Early Convergence Debate` | 導入三維度客觀量化評審表（Rubric ≥ 8.5 通過門檻）與正反紅隊對抗辯論，消除確認偏差。 |
+| **LLM10: Unbounded Consumption** | 錢包拒絕服務攻擊 (Denial-of-Wallet)、高頻刷量或巨型 Prompt Token 炸彈 | `SlidingWindowRateLimiter`<br>`TaskCircuitBreaker` | 滑動時間窗口（RPM / TPM 獨立限制）結合單次字元上限（Token 炸彈攔截）與三重熔斷保護。 |
+
+---
+
+### 8.2 密碼學不可篡改審計日誌 (Tamper-Proof Audit Logger - SOC 2 / ISO 27001)
+
+傳統 Agent 執行日誌容易遭受惡意攻擊者或內部人員手動竄改刪除。本專案引入類似區塊鏈之**前驅雜湊鏈 (Cryptographic Hash-Chain)** 審計記錄器：
+
+$$\text{hash}_i = \text{SHA-256}(\text{hash}_{i-1} \parallel \text{sanitized\_payload}_i)$$
+
+- **隱私零洩漏 (Zero Plaintext Leakage)**：使用者提問只儲存不可逆之 SHA-256 指紋，詳細上下文字段落盤前強制通過 PII 脫敏過濾。
+- **單字元竄改即刻報警**：任何對日誌檔案的單一字元竄改、行刪除、順序調換，皆會導致雜湊鏈斷裂。
+- **開箱即用驗證 API**：
+```python
+from router_app import TamperProofAuditLogger
+
+# 驗證審計日誌物理完整性 (支援離線檢驗)
+is_valid, record_count, error_msg = TamperProofAuditLogger.verify_file_integrity("audit.jsonl")
+if is_valid:
+    print(f"✅ 審計日誌密碼學校驗通過！共 {record_count} 筆記錄完整無損。")
+else:
+    print(f"🚨 警告：偵測到非法篡改或記錄刪除！原因: {error_msg}")
+```
+
+---
+
+### 8.3 工具級別角色存取控制 (Tool-Level RBAC)
+
+透過 `ToolRBACGuard` 與 `@require_roles` 裝飾器，落實最小特權（Least Privilege）：
+```python
+from router_app import BaseTool, ToolRBACGuard, require_roles
+
+class DatabaseDropTool(BaseTool):
+    name = "drop_partition"
+    description = "刪除特定分區"
+    risk_level = "critical"  # critical 僅允許 admin / ciso / security_officer 調用
+    
+    def execute(self, **kwargs):
+        return "Partition dropped"
+
+# 檢查使用者是否具備調用權限
+allowed, reason = ToolRBACGuard.verify_tool_access(DatabaseDropTool(), user_roles=["guest"])
+# 輸出: False, "權限不足：工具 'drop_partition' 風險等級為 'critical'，需要角色 ['admin', 'ciso', 'security_officer']..."
+```
+
+---
+
+## 9. 跨領域整合實戰案例 (End-to-End Integration Examples)
 
 專案提供完整多領域端到端生產範例，位於 `examples/` 目錄：
 - **全模式與各算力階層端到端效果展示**：[`examples/all_modes_showcase.py`](examples/all_modes_showcase.py)
@@ -257,13 +321,13 @@ print(result.to_battle_card())
 
 ---
 
-## 9. 安全性與漏洞回報 (Security Policy)
+## 10. 安全性與漏洞回報 (Security Policy)
 
 本專案將執行安全性列為最高優先級別。若您在 AST 語法解析器、安全護欄或狀態機中發現潛在安全漏洞，請**切勿公開提出 Issue**。請發送電子郵件至維護團隊信箱進行負責任的漏洞披露，我們將在 48 小時內進行評估與修補發版。
 
 ---
 
-## 10. 授權條款與貢獻指南 (License & Contributing)
+## 11. 授權條款與貢獻指南 (License & Contributing)
 
 - 本專案採用 [MIT License](LICENSE) 授權開源。
 - 歡迎透過 Pull Request 貢獻新的 Agent 模式實作、語意原型字典或安全檢驗規則。提交前請確保通過 `python -m unittest tests/test_router_suite.py` 測試。

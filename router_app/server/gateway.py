@@ -108,6 +108,12 @@ class OpenAIGatewayHandler(BaseHTTPRequestHandler):
             if model_req in [m.value for m in AgentMode]:
                 forced_mode = AgentMode(model_req)
 
+            # 萃取身分與權限安全標頭 (OWASP LLM03 & LLM10)
+            client_id = self.headers.get("X-Forwarded-For", "").split(",")[0].strip() or str(self.client_address[0])
+            user_roles_hdr = self.headers.get("X-User-Roles", "")
+            user_roles = [r.strip() for r in user_roles_hdr.split(",") if r.strip()] if user_roles_hdr else body.get("user_roles")
+            operator_id = self.headers.get("X-Operator-Id") or self.headers.get("X-User-Id") or body.get("operator_id") or "api_gateway"
+
             # 1. 處理串流 SSE 回應
             if stream:
                 self.send_response(200)
@@ -121,7 +127,13 @@ class OpenAIGatewayHandler(BaseHTTPRequestHandler):
                 created_ts = int(time.time())
 
                 # 透過 dispatcher 執行並模擬 Token 串流
-                result = self.dispatcher.process(user_prompt, forced_mode=forced_mode)
+                result = self.dispatcher.process(
+                    user_prompt,
+                    forced_mode=forced_mode,
+                    client_id=client_id,
+                    user_roles=user_roles,
+                    operator_id=operator_id,
+                )
                 words = result.output.split(" ")
 
                 for w in words:
@@ -153,7 +165,13 @@ class OpenAIGatewayHandler(BaseHTTPRequestHandler):
                 return
 
             # 2. 處理標準非串流回應
-            result = self.dispatcher.process(user_prompt, forced_mode=forced_mode)
+            result = self.dispatcher.process(
+                user_prompt,
+                forced_mode=forced_mode,
+                client_id=client_id,
+                user_roles=user_roles,
+                operator_id=operator_id,
+            )
             tokens = result.total_tokens_used or 150
 
             response_payload = {
@@ -194,10 +212,14 @@ class OpenAIGatewayHandler(BaseHTTPRequestHandler):
                 try:
                     body = json.loads(post_data.decode("utf-8")) if post_data else {}
                     approved = body.get("approved", True)
+                    operator_id = self.headers.get("X-Operator-Id") or body.get("operator_id") or "security_officer"
+                    reason = body.get("reason", "")
                 except Exception:
                     approved = True
+                    operator_id = "security_officer"
+                    reason = ""
 
-                res = self.dispatcher.resume_task(task_id, approved=approved)
+                res = self.dispatcher.resume_task(task_id, approved=approved, operator_id=operator_id, reason=reason)
                 self._set_headers(200)
                 self.wfile.write(json.dumps({"task_id": task_id, "output": res.output, "success": res.success}, ensure_ascii=False).encode("utf-8"))
                 return

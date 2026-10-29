@@ -46,6 +46,12 @@ from .guardrails import (
     InputSecurityRail,
     OutputPIISanitizerRail,
     TaskCheckpointer,
+    TamperProofAuditLogger,
+    IndirectInjectionSanitizer,
+    ToolRBACGuard,
+    PermissionDeniedException,
+    SlidingWindowRateLimiter,
+    SystemPromptLeakGuard,
 )
 from .cache import RouteCache, ELORatingTuner
 from .tracing import TraceContext, metrics
@@ -64,6 +70,8 @@ class AdaptiveAgentDispatcher:
         custom_tools: Optional[List[BaseTool]] = None,
         custom_modes: Optional[Dict[AgentMode, Any]] = None,
         elo_tuner: Optional[ELORatingTuner] = None,
+        audit_log_path: Optional[str] = None,
+        rate_limiter: Optional[SlidingWindowRateLimiter] = None,
         enable_logging: bool = True,
     ):
         self.elo_tuner = elo_tuner or ELORatingTuner()
@@ -71,6 +79,8 @@ class AdaptiveAgentDispatcher:
         self.memory = MemoryManager()
         self.cache = RouteCache()
         self.suspension_manager = TaskSuspensionManager()
+        self.audit_logger = TamperProofAuditLogger(log_file_path=audit_log_path)
+        self.rate_limiter = rate_limiter or SlidingWindowRateLimiter()
         self.enable_logging = enable_logging
 
         # 註冊預設工具 + 外部傳入的自訂工具
@@ -109,13 +119,36 @@ class AdaptiveAgentDispatcher:
         forced_mode: Optional[AgentMode] = None,
         shadow_mode: Optional[AgentMode] = None,
         trace_id: Optional[str] = None,
+        operator_id: str = "system",
+        user_roles: Optional[List[str]] = None,
+        client_id: Optional[str] = None,
     ) -> ExecutionResult:
         """
         核心執行函式：接收問題 ➜ 快取檢索 ➜ 路由器決策 ➜ 派發至最適模式 ➜ 返回結果
-        支援影子流量乾跑 (Shadow Routing / Canary Evaluation) 與 Prometheus 遙測。
+        支援影子流量乾跑 (Shadow Routing / Canary Evaluation)、Prometheus 遙測、RBAC 權限與不可篡改審計日誌。
         """
         import time
         start_ts = time.time()
+
+        # 0. 前置頻率限制與 Token 炸彈防護 (OWASP LLM10)
+        if client_id:
+            allowed, rl_msg, retry_after = self.rate_limiter.check_limit(client_id, prompt_str=prompt)
+            if not allowed:
+                self.audit_logger.record_event(
+                    event_type="RATE_LIMIT_BLOCKED",
+                    prompt=prompt,
+                    mode_used="none",
+                    risk_level="high",
+                    details={"reason": rl_msg, "retry_after": retry_after},
+                    operator_id=operator_id,
+                )
+                return ExecutionResult(
+                    output=f"⚠️ {rl_msg} (Retry-After: {retry_after}s)",
+                    mode_used=AgentMode.SINGLE_TURN,
+                    success=False,
+                    metadata={"retry_after": retry_after, "blocked_by": "SlidingWindowRateLimiter"},
+                )
+
         tracer = TraceContext(trace_id=trace_id)
         span_total = tracer.start_span("process_request", {"prompt": prompt})
 
@@ -124,6 +157,14 @@ class AdaptiveAgentDispatcher:
         if not is_safe:
             span_total.finish("BLOCKED_BY_INPUT_RAIL")
             metrics.record_request(mode="input_rail", tier="none", status="blocked")
+            self.audit_logger.record_event(
+                event_type="SECURITY_BLOCKED",
+                prompt=prompt,
+                mode_used="input_rail",
+                risk_level="critical",
+                details={"reason": security_msg},
+                operator_id=operator_id,
+            )
             blocked_result = ExecutionResult(
                 output=f"【安全防禦攔截 (Input Rail Blocked)】\n{security_msg}",
                 mode_used=AgentMode.VERIFIER_GATED,
@@ -168,6 +209,14 @@ class AdaptiveAgentDispatcher:
             )
             span_total.finish("SUSPENDED")
             metrics.record_request(mode=decision.mode.value, tier=decision.model_tier.value, status="suspended")
+            self.audit_logger.record_event(
+                event_type="TASK_SUSPENDED",
+                prompt=prompt,
+                mode_used=decision.mode.value,
+                risk_level=decision.risk_level.value,
+                details={"task_id": suspended.task_id, "reasoning": decision.reasoning},
+                operator_id=operator_id,
+            )
             return ExecutionResult(
                 output=(
                     f"【安全門控攔截 (Task Suspended)】\n"
@@ -189,6 +238,11 @@ class AdaptiveAgentDispatcher:
         breaker = TaskCircuitBreaker()
         span_exec = tracer.start_span("execute_mode", {"mode": decision.mode.value})
 
+        # 工具層級 RBAC 角色權限過濾 (OWASP LLM03 & LLM06)
+        authorized_tools = [
+            t for t in self.tools if ToolRBACGuard.verify_tool_access(t, user_roles)[0]
+        ]
+
         try:
             # 獲取對應模式執行器
             executor = self.mode_registry.get(decision.mode)
@@ -196,11 +250,17 @@ class AdaptiveAgentDispatcher:
                 executor = self.mode_registry[AgentMode.SINGLE_TURN]
 
             # 執行任務
-            result = executor.run(prompt=prompt, tools=self.tools, context=context)
+            result = executor.run(prompt=prompt, tools=authorized_tools, context=context)
             breaker.record_step(tokens=result.total_tokens_used or 0)
             
             # 後置個資脫敏過濾 (借鏡 Guardrails AI: Output PII Sanitizer)
             result.output = OutputPIISanitizerRail.sanitize(result.output)
+
+            # 系統提示詞洩漏阻斷審查 (OWASP LLM07)
+            result.output, has_leak, leak_details = SystemPromptLeakGuard.inspect_and_sanitize(result.output)
+            if has_leak:
+                result.metadata["system_prompt_leak_neutralized"] = leak_details
+
             span_exec.finish("OK")
 
             # 記錄執行元數據與遙測指標 (Telemetry & Tracing)
@@ -212,7 +272,7 @@ class AdaptiveAgentDispatcher:
             if shadow_mode and shadow_mode in self.mode_registry:
                 shadow_start = time.time()
                 shadow_executor = self.mode_registry[shadow_mode]
-                shadow_res = shadow_executor.run(prompt=prompt, tools=self.tools, context=context)
+                shadow_res = shadow_executor.run(prompt=prompt, tools=authorized_tools, context=context)
                 shadow_dur = time.time() - shadow_start
                 result.metadata["shadow_evaluation"] = {
                     "primary_mode": decision.mode.value,
@@ -249,14 +309,31 @@ class AdaptiveAgentDispatcher:
         metrics.record_tokens(consumed=result.total_tokens_used or 0)
         span_total.finish("OK" if result.success else "FAILED")
 
+        # 記錄不可篡改審計事件
+        self.audit_logger.record_event(
+            event_type="TASK_COMPLETED" if result.success else "TASK_FAILED",
+            prompt=prompt,
+            mode_used=result.mode_used.value,
+            risk_level=decision.risk_level.value,
+            details={"tokens": result.total_tokens_used or 0, "success": result.success},
+            operator_id=operator_id,
+        )
+
         if self.enable_logging:
             self._log_result(result)
 
         return result
 
-    def resume_task(self, task_id: str, approved: bool = True) -> ExecutionResult:
+    def resume_task(
+        self,
+        task_id: str,
+        approved: bool = True,
+        operator_id: str = "security_officer",
+        reason: str = "",
+    ) -> ExecutionResult:
         """
         外部非同步審批通過後，喚醒掛起的任務並放行執行
+        記錄不可篡改審批簽章與操作者身分留痕
         """
         task = self.suspension_manager.pop_task(task_id)
         if not task:
@@ -266,12 +343,22 @@ class AdaptiveAgentDispatcher:
                 success=False
             )
 
+        # 記錄審批不可篡改日誌
+        self.audit_logger.record_event(
+            event_type="TASK_APPROVED" if approved else "TASK_REJECTED",
+            prompt=task.prompt,
+            mode_used=task.target_mode,
+            risk_level=task.risk_level,
+            details={"task_id": task_id, "reason": reason, "approved": approved},
+            operator_id=operator_id,
+        )
+
         if not approved:
             return ExecutionResult(
-                output=f"任務 {task_id} 已由審批人員正式拒絕，操作已取消。",
+                output=f"任務 {task_id} 已由審批人員 ({operator_id}) 正式拒絕，操作已取消。理由: {reason}",
                 mode_used=AgentMode.VERIFIER_GATED,
                 success=False,
-                metadata={"status": "REJECTED"}
+                metadata={"status": "REJECTED", "operator_id": operator_id}
             )
 
         # 審批通過，直接執行目標模式
