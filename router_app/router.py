@@ -176,6 +176,17 @@ class AdaptiveRouter:
                 tags=["low_latency", "cost_efficient"]
             )
 
+        if any(w in p_lower for w in ["歷史記憶", "專案規範", "長期記憶", "決策背景", "偏好記錄", "本專案規範", "規範"]):
+            mode = AgentMode.MEMORY_AUGMENTED
+            return RoutingDecision(
+                mode=mode,
+                model_tier=self.MODEL_TIER_MAP[mode],
+                reasoning="需要檢索專案歷史決策脈絡或使用者長期記憶 (RRF 混合召回)。",
+                risk_level=RiskLevel.LOW,
+                estimated_steps=1,
+                tags=["memory_augmented", "rrf_retrieval"]
+            )
+
         return None
 
     def _fallback_route(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> RoutingDecision:

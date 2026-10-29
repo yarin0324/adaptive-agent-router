@@ -7,6 +7,7 @@ from .mode_verifier_gated import VerifierGatedMode
 from .mode_multi_agent import MultiAgentMode
 from .mode_tool_agent import ToolAgentMode
 from .mode_ensemble import EnsembleMode
+from .mode_memory import MemoryAugmentedMode
 
 __all__ = [
     "BaseAgentMode",
@@ -18,4 +19,5 @@ __all__ = [
     "MultiAgentMode",
     "ToolAgentMode",
     "EnsembleMode",
+    "MemoryAugmentedMode",
 ]

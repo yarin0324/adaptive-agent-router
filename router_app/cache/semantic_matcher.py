@@ -42,6 +42,11 @@ class SemanticPrototypeMatcher:
                 "正方 反方 紅隊 挑刺 仲裁 評估 論證",
                 "架構師 風控 領域 專家 圓桌 協商",
             ],
+            AgentMode.MEMORY_AUGMENTED: [
+                "查詢 歷史 記憶 長期 規範 喚醒 脈絡",
+                "本專案 規範 慣例 決策 背景 防死鎖 with",
+                "個人 偏好 記憶 檢索 跨輪次 累積 規則",
+            ],
         }
 
     def _tokenize(self, text: str) -> set:

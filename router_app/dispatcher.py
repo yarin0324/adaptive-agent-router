@@ -35,6 +35,7 @@ from .modes import (
     MultiAgentMode,
     ToolAgentMode,
     EnsembleMode,
+    MemoryAugmentedMode,
 )
 from .guardrails import (
     TaskCircuitBreaker,
@@ -92,6 +93,7 @@ class AdaptiveAgentDispatcher:
             AgentMode.MULTI_AGENT: MultiAgentMode(),
             AgentMode.TOOL_USE: ToolAgentMode(),
             AgentMode.ENSEMBLE: EnsembleMode(),
+            AgentMode.MEMORY_AUGMENTED: MemoryAugmentedMode(memory_manager=self.memory),
         }
         if custom_modes:
             self.mode_registry.update(custom_modes)
