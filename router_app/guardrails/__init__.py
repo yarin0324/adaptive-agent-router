@@ -3,6 +3,7 @@ from .escalation import AdaptiveEscalationEngine
 from .suspension import TaskSuspensionManager, SuspendedTask
 from .rails import InputSecurityRail, OutputPIISanitizerRail
 from .checkpointer import TaskCheckpointer, CheckpointSnapshot
+from .ast_guard import PythonASTSecurityGuard, SQLASTSecurityGuard
 
 __all__ = [
     "TaskCircuitBreaker",
@@ -15,4 +16,6 @@ __all__ = [
     "OutputPIISanitizerRail",
     "TaskCheckpointer",
     "CheckpointSnapshot",
+    "PythonASTSecurityGuard",
+    "SQLASTSecurityGuard",
 ]

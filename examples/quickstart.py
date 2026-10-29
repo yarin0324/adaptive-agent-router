@@ -6,6 +6,8 @@
 3. Guardrails AI 雙向衛兵 (Input Injection 防禦 + Output PII 機敏個資脫敏)
 4. LangGraph 任務檢查點 (Task Checkpointer 步驟快照)
 5. 非同步人機協同審批狀態機 (Suspend & Resume)
+6. 編譯器級 AST 語法樹護欄 (Python & SQL AST Guard)
+7. Token 上下文折疊與修剪 (Context Compression)
 """
 
 import sys
@@ -13,7 +15,12 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from router_app import AdaptiveAgentDispatcher
+from router_app import (
+    AdaptiveAgentDispatcher,
+    PythonASTSecurityGuard,
+    SQLASTSecurityGuard,
+    ContextCompressor,
+)
 
 
 def main():
@@ -79,6 +86,34 @@ def main():
         resume_result = dispatcher.resume_task(last_suspended_task_id, approved=True)
         print(f"審批放行執行結果: {resume_result.output}")
         print("-" * 65)
+
+    # 驗證特性 5: 編譯器級 AST 語法樹安全檢查 (AST Guardrail)
+    print("\n[AST Security Guard Test] 驗證編譯器級語法樹安全校驗...")
+    # 5.1 Python AST 檢查: 模擬惡意生成的動態注入代碼
+    malicious_code = "import os; os.system('rm -rf /'); eval('__import__(\"sys\").exit()')"
+    is_safe_py, py_violations = PythonASTSecurityGuard.validate_code(malicious_code)
+    print(f"Python 代碼注入測試 (預期安全=False): {is_safe_py}")
+    for v in py_violations:
+        print(f"  -> AST 阻斷: {v}")
+
+    # 5.2 SQL AST 檢查: 模擬混淆語法進行 DROP TABLE
+    malicious_sql = "SELECT * FROM users; DROP/*comment*/TABLE orders;--"
+    is_safe_sql, sql_violations = SQLASTSecurityGuard.validate_query(malicious_sql)
+    print(f"SQL 破壞性語法測試 (預期安全=False): {is_safe_sql}")
+    for v in sql_violations:
+        print(f"  -> AST 阻斷: {v}")
+    print("-" * 65)
+
+    # 驗證特性 6: Token 上下文折疊與修剪 (Context Compression)
+    print("\n[Context Compression Test] 驗證巨型資料庫查詢回傳折疊 (節省 80% Token)...")
+    huge_db_result = [
+        {"id": i, "order_no": f"ORD_{i:04d}", "amount": 100 * i, "status": "COMPLETED"}
+        for i in range(1, 101)
+    ]
+    compressed_output = ContextCompressor.fold_structured_data(huge_db_result, max_items=5)
+    print("折疊後發送給 LLM 的壓縮結構:")
+    print(compressed_output)
+    print("-" * 65)
 
 
 if __name__ == "__main__":

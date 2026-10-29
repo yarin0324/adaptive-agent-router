@@ -8,6 +8,7 @@ from .types import AgentMode, RiskLevel, ModelTier, RoutingDecision, ExecutionRe
 from .tools.base_tool import BaseTool, SimpleFunctionTool
 from .cache import RouteCache, SemanticPrototypeMatcher
 from .tracing import TraceContext, TraceSpan
+from .compression import ContextCompressor
 from .guardrails import (
     TaskCircuitBreaker,
     TaskSuspensionManager,
@@ -16,6 +17,8 @@ from .guardrails import (
     OutputPIISanitizerRail,
     TaskCheckpointer,
     CheckpointSnapshot,
+    PythonASTSecurityGuard,
+    SQLASTSecurityGuard,
 )
 
 __all__ = [
@@ -32,6 +35,7 @@ __all__ = [
     "SemanticPrototypeMatcher",
     "TraceContext",
     "TraceSpan",
+    "ContextCompressor",
     "TaskCircuitBreaker",
     "TaskSuspensionManager",
     "SuspendedTask",
@@ -39,4 +43,6 @@ __all__ = [
     "OutputPIISanitizerRail",
     "TaskCheckpointer",
     "CheckpointSnapshot",
+    "PythonASTSecurityGuard",
+    "SQLASTSecurityGuard",
 ]
