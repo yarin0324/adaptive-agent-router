@@ -41,6 +41,9 @@ from .guardrails import (
     AdaptiveEscalationEngine,
     TaskSuspensionManager,
     SuspendedTask,
+    InputSecurityRail,
+    OutputPIISanitizerRail,
+    TaskCheckpointer,
 )
 from .cache import RouteCache
 from .tracing import TraceContext
@@ -107,6 +110,20 @@ class AdaptiveAgentDispatcher:
         tracer = TraceContext(trace_id=trace_id)
         span_total = tracer.start_span("process_request", {"prompt": prompt})
 
+        # 0. 前置安全軌道防禦 (借鏡 Guardrails AI: Input Rail)
+        is_safe, security_msg = InputSecurityRail.validate_prompt(prompt)
+        if not is_safe:
+            span_total.finish("BLOCKED_BY_INPUT_RAIL")
+            blocked_result = ExecutionResult(
+                output=f"【安全防禦攔截 (Input Rail Blocked)】\n{security_msg}",
+                mode_used=AgentMode.VERIFIER_GATED,
+                success=False,
+                metadata={"blocked_by": "InputSecurityRail"}
+            )
+            if self.enable_logging:
+                self._log_result(blocked_result)
+            return blocked_result
+
         # 1. 路由決策 (優先檢索 RouteCache)
         cached_decision = self.cache.get(prompt) if not forced_mode else None
         if cached_decision:
@@ -168,6 +185,9 @@ class AdaptiveAgentDispatcher:
             # 執行任務
             result = executor.run(prompt=prompt, tools=self.tools, context=context)
             breaker.record_step(tokens=result.total_tokens_used or 0)
+            
+            # 後置個資脫敏過濾 (借鏡 Guardrails AI: Output PII Sanitizer)
+            result.output = OutputPIISanitizerRail.sanitize(result.output)
             span_exec.finish("OK")
 
             # 記錄執行元數據與遙測指標 (Telemetry & Tracing)
@@ -228,6 +248,7 @@ class AdaptiveAgentDispatcher:
     def _log_decision(self, prompt: str, decision: RoutingDecision, is_cached: bool = False):
         """美化輸出路由決策日誌"""
         cache_indicator = " [HIT CACHE]" if is_cached else ""
+        tier_str = decision.model_tier.value.upper()
         if HAS_RICH and console:
             table = Table(title=f"🧭 [bold cyan]Adaptive Agent Router 決策分流{cache_indicator}[/bold cyan]")
             table.add_column("項目", style="bold yellow")
@@ -235,6 +256,7 @@ class AdaptiveAgentDispatcher:
 
             table.add_row("使用者提問", prompt)
             table.add_row("指派模式", f"[green]{decision.mode.value}[/green]")
+            table.add_row("算力階層", f"[magenta]{tier_str}[/magenta]")
             table.add_row("判斷理由", decision.reasoning)
             table.add_row("快取狀態", "[magenta]HIT (0ms)[/magenta]" if is_cached else "[dim]MISS[/dim]")
             table.add_row("風險評級", f"[red]{decision.risk_level.value}[/red]" if decision.risk_level.value in ["high", "critical"] else f"[blue]{decision.risk_level.value}[/blue]")
@@ -246,13 +268,8 @@ class AdaptiveAgentDispatcher:
             print(f"\n┌─ [Adaptive Agent Router 決策分流{cache_indicator}] ──────────────────────")
             print(f"│ 使用者提問: {prompt}")
             print(f"│ 指派模式:   {decision.mode.value}")
+            print(f"│ 算力階層:   {tier_str}")
             print(f"│ 快取狀態:   {'HIT (0ms)' if is_cached else 'MISS'}")
-            print(f"│ 判斷理由:   {decision.reasoning}")
-            print(f"│ 風險評級:   {decision.risk_level.value}")
-            print(f"│ 需人工審批: {decision.require_human_confirmation}")
-            print(f"│ 標籤 Tags:  {', '.join(decision.tags)}")
-            print("└────────────────────────────────────────────────────────\n")
-            print(f"│ 指派模式:   {decision.mode.value}")
             print(f"│ 判斷理由:   {decision.reasoning}")
             print(f"│ 風險評級:   {decision.risk_level.value}")
             print(f"│ 需人工審批: {decision.require_human_confirmation}")

@@ -83,6 +83,19 @@ flowchart TD
 ### 2.6 分散式全鏈路可觀測性 (Distributed Tracing Alignment)
 遵循 OpenTelemetry 語意標準，原生實作 `TraceContext` 與 `TraceSpan`。每次調用生成全域唯一的 `trace_id`，詳細記錄路由決策、快取狀態、各階段耗時與模式執行軌跡，直接輸出結構化審計日誌。
 
+### 2.7 雙維度算力矩陣路由 (2D Matrix: Pattern × Model Tier)
+借鏡 RouteLLM 設計，決策輸出不僅包含架構模式，更同時指派最經濟的模型算力階層（FAST / STANDARD / REASONING）：
+- 輕量抽取與工具調用自動綁定輕量模型（如 `gpt-4o-mini` / `gemini-1.5-flash`）。
+- 嚴格反思、長流程規劃與專家辯論自動升格至頂級推理模型（如 `claude-3-5-sonnet` / `o1`），達成架構與 Token 成本雙重最佳化。
+
+### 2.8 雙向安全防禦與個資脫敏 (Bi-directional Guardrails)
+借鏡 Guardrails AI 設計，架構前置與後置雙軌防護：
+- **Input Rail**：在進入調度管線前，主動阻斷 Prompt Injection、系統指令覆蓋 (System Override) 與惡意越獄嘗試。
+- **Output Rail**：在交付結果給使用者前，自動掃描並脫敏機敏身分證字號、信用卡號、電子郵件與 API Key，替換為 `[REDACTED_PII]`。
+
+### 2.9 任務檢查點與斷點續傳 (Task Checkpointer & State Snapshots)
+借鏡 LangGraph Checkpointer 機制，長流程任務（如 Planner-Executor）每完成一個子步驟即序列化一筆不可變快照（Snapshot）。若後續步驟遭遇異常，呼叫端可直接從最後成功的 Checkpoint 接續執行，免去從頭重跑的計算損耗。
+
 ---
 
 ## 3. 十大 Agent 設計模式分流矩陣 (Decision Matrix)

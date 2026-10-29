@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from .base import BaseAgentMode
 from ..types import AgentMode, ExecutionResult
 from ..tools.base_tool import BaseTool
+from ..guardrails.checkpointer import TaskCheckpointer
 
 
 class PlannerExecutorMode(BaseAgentMode):
@@ -22,6 +23,7 @@ class PlannerExecutorMode(BaseAgentMode):
     ) -> ExecutionResult:
         start_time = time.time()
         steps = []
+        checkpointer = TaskCheckpointer()
 
         # 1. 規劃階段
         plan_steps = [
@@ -36,12 +38,18 @@ class PlannerExecutorMode(BaseAgentMode):
             "plan": plan_steps
         })
 
-        # 2. 執行階段
+        # 2. 執行階段 (每一步驟寫入 Checkpoint 快照)
         for idx, sub_step in enumerate(plan_steps, start=1):
+            cp = checkpointer.save_step(
+                step_index=idx,
+                step_name=sub_step,
+                output_state=f"Subtask {idx} output verified."
+            )
             steps.append({
                 "stage": f"Executor_Worker_{idx}",
                 "action": "execute_subtask",
                 "target": sub_step,
+                "checkpoint_id": cp.checkpoint_id,
                 "status": "completed"
             })
 
@@ -61,5 +69,9 @@ class PlannerExecutorMode(BaseAgentMode):
             execution_steps=steps,
             total_tokens_used=1450,
             success=True,
-            metadata={"plan_count": len(plan_steps), "latency_ms": round((time.time() - start_time) * 1000, 2)}
+            metadata={
+                "plan_count": len(plan_steps),
+                "checkpoints": checkpointer.get_history(),
+                "latency_ms": round((time.time() - start_time) * 1000, 2)
+            }
         )

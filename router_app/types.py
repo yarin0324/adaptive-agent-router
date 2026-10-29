@@ -32,11 +32,22 @@ class RiskLevel(str, Enum):
     CRITICAL = "critical"  # 金融交易下單、刪除資料表、不可逆付款或系統停機
 
 
+class ModelTier(str, Enum):
+    """
+    模型算力檔次矩陣 (借鏡 RouteLLM 設計)
+    動態為不同複雜度的 Pattern 指派最經濟算力階層
+    """
+    FAST = "fast"              # 輕量快速 (如 gpt-4o-mini, gemini-1.5-flash) - 適用 Mode 1, 8
+    STANDARD = "standard"      # 標準通用 (如 gpt-4o, claude-3-5-haiku) - 適用 Mode 2, 6
+    REASONING = "reasoning"    # 深度推理 (如 claude-3-5-sonnet, o1, gemini-1.5-pro) - 適用 Mode 4, 5, 7, 9
+
+
 class RoutingDecision(BaseModel):
     """
-    路由器輸出的結構化決策
+    路由器輸出的結構化決策 (2D 矩陣: Pattern × Model Tier)
     """
     mode: AgentMode = Field(..., description="選擇的 Agent 執行模式")
+    model_tier: ModelTier = Field(default=ModelTier.STANDARD, description="指派之最經濟算力階層")
     reasoning: str = Field(..., description="選擇此模式的判斷理由與底層思考")
     risk_level: RiskLevel = Field(default=RiskLevel.LOW, description="評估該任務的風險等級")
     estimated_steps: int = Field(default=1, description="預估需要的執行步數或輪次")
