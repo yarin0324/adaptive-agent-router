@@ -15,19 +15,37 @@ class PermissionDeniedException(Exception):
     pass
 
 
-def require_roles(*allowed_roles: str) -> Callable:
+def _normalize_roles(roles: Any) -> List[str]:
+    """將各類角色格式 (字串、清單、逗號分隔、集合) 統一規範化為小寫字串清單"""
+    if not roles:
+        return ["user"]
+    if isinstance(roles, str):
+        return [r.strip().lower() for r in roles.split(",") if r.strip()]
+    res = []
+    for r in roles:
+        if isinstance(r, (list, tuple, set)):
+            res.extend([str(x).strip().lower() for x in r if str(x).strip()])
+        elif isinstance(r, str):
+            res.extend([x.strip().lower() for x in r.split(",") if x.strip()])
+        else:
+            res.append(str(r).strip().lower())
+    return res or ["user"]
+
+
+def require_roles(*allowed_roles: Any) -> Callable:
     """裝飾器：限制函式或工具必須由具備特定角色的使用者執行"""
+    normalized_allowed = set(_normalize_roles(allowed_roles))
+
     def decorator(fn: Callable) -> Callable:
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
             user_roles = kwargs.get("user_roles")
-            roles_set = set(r.lower() for r in (user_roles or ["user"]))
+            roles_set = set(_normalize_roles(user_roles))
             if "admin" in roles_set or "root" in roles_set:
                 return fn(*args, **kwargs)
-            allowed_set = set(r.lower() for r in allowed_roles)
-            if not roles_set.intersection(allowed_set):
+            if not roles_set.intersection(normalized_allowed):
                 raise PermissionDeniedException(
-                    f"權限不足：執行 {fn.__name__} 需要角色 {list(allowed_set)}，當前具備 {list(roles_set)}"
+                    f"權限不足：執行 {fn.__name__} 需要角色 {list(normalized_allowed)}，當前具備 {list(roles_set)}"
                 )
             return fn(*args, **kwargs)
         return wrapper
@@ -49,21 +67,20 @@ class ToolRBACGuard:
     def verify_tool_access(
         cls,
         tool: BaseTool,
-        user_roles: Optional[List[str]] = None,
+        user_roles: Any = None,
     ) -> Tuple[bool, str]:
         """
         校驗使用者角色是否具備調用該 Tool 之合法授權
         回傳: (是否允許, 說明訊息)
         """
-        # 若為內部系統管理員直接放行
-        roles_set = set(r.lower() for r in (user_roles or ["user"]))
+        roles_set = set(_normalize_roles(user_roles))
         if "admin" in roles_set or "root" in roles_set:
             return True, "Admin access granted."
 
         # 1. 若工具明確宣告了 allowed_roles
         tool_allowed_roles = getattr(tool, "allowed_roles", None)
         if tool_allowed_roles:
-            allowed_set = set(r.lower() for r in tool_allowed_roles)
+            allowed_set = set(_normalize_roles(tool_allowed_roles))
             if roles_set.intersection(allowed_set):
                 return True, f"Role check passed for tool '{tool.name}'."
             return (

@@ -366,10 +366,21 @@ class AdaptiveAgentDispatcher:
         executor = self.mode_registry.get(mode_enum, self.mode_registry[AgentMode.SINGLE_TURN])
         resume_context = dict(task.context_snapshot)
         resume_context["approved_by_human"] = True
+        
+        # 審批後放行之工具過濾 (允許 admin / security_officer 授權)
+        approved_roles = ["admin", "security_officer"]
+        authorized_tools = [
+            t for t in self.tools if ToolRBACGuard.verify_tool_access(t, approved_roles)[0]
+        ]
         try:
-            result = executor.run(prompt=task.prompt, tools=self.tools, context=resume_context)
+            result = executor.run(prompt=task.prompt, tools=authorized_tools, context=resume_context)
             result.metadata["resume_task_id"] = task_id
             result.metadata["approved_by_human"] = True
+            
+            # 個資脫敏與系統提示詞洩漏審查
+            result.output = OutputPIISanitizerRail.sanitize(result.output)
+            result.output, _, _ = SystemPromptLeakGuard.inspect_and_sanitize(result.output)
+
             return result
         except CircuitBreakerException as cbe:
             return ExecutionResult(
@@ -405,6 +416,9 @@ class AdaptiveAgentDispatcher:
         context: Optional[Dict[str, Any]] = None,
         forced_mode: Optional[AgentMode] = None,
         trace_id: Optional[str] = None,
+        operator_id: str = "system",
+        user_roles: Optional[List[str]] = None,
+        client_id: Optional[str] = None,
     ) -> ExecutionResult:
         """非同步無阻塞呼叫 (Async Non-blocking Dispatch)"""
         return await asyncio.to_thread(
@@ -413,6 +427,9 @@ class AdaptiveAgentDispatcher:
             context=context,
             forced_mode=forced_mode,
             trace_id=trace_id,
+            operator_id=operator_id,
+            user_roles=user_roles,
+            client_id=client_id,
         )
 
     async def aprocess_stream(
@@ -421,11 +438,33 @@ class AdaptiveAgentDispatcher:
         context: Optional[Dict[str, Any]] = None,
         forced_mode: Optional[AgentMode] = None,
         trace_id: Optional[str] = None,
+        operator_id: str = "system",
+        user_roles: Optional[List[str]] = None,
+        client_id: Optional[str] = None,
     ) -> AsyncGenerator[RouterStreamChunk, None]:
         """
         非同步串流輸出引擎 (Async Streaming SSE Generator)
         逐段產出路由決策、步驟進度、思考過程與結果 Token 區塊。
         """
+        # 0. 前置頻率限制與 Token 炸彈防護 (OWASP LLM10)
+        if client_id:
+            allowed, rl_msg, retry_after = self.rate_limiter.check_limit(client_id, prompt_str=prompt)
+            if not allowed:
+                self.audit_logger.record_event(
+                    event_type="RATE_LIMIT_BLOCKED",
+                    prompt=prompt,
+                    mode_used="none",
+                    risk_level="high",
+                    details={"reason": rl_msg, "retry_after": retry_after},
+                    operator_id=operator_id,
+                )
+                yield RouterStreamChunk(
+                    event=StreamEventType.TASK_FAILED,
+                    message=f"⚠️ {rl_msg} (Retry-After: {retry_after}s)",
+                    data={"retry_after": retry_after, "blocked_by": "SlidingWindowRateLimiter"},
+                )
+                return
+
         # 1. 廣播路由啟動事件
         yield RouterStreamChunk(
             event=StreamEventType.ROUTE_START,
@@ -433,9 +472,17 @@ class AdaptiveAgentDispatcher:
             data={"prompt": prompt},
         )
 
-        # 0. 前置安全軌道防禦
+        # 2. 前置安全軌道防禦
         is_safe, security_msg = InputSecurityRail.validate_prompt(prompt)
         if not is_safe:
+            self.audit_logger.record_event(
+                event_type="SECURITY_BLOCKED",
+                prompt=prompt,
+                mode_used="input_rail",
+                risk_level="critical",
+                details={"reason": security_msg},
+                operator_id=operator_id,
+            )
             yield RouterStreamChunk(
                 event=StreamEventType.TASK_FAILED,
                 message=f"Prompt 被安全衛兵阻斷: {security_msg}",
@@ -443,7 +490,7 @@ class AdaptiveAgentDispatcher:
             )
             return
 
-        # 1. 路由決策
+        # 3. 路由決策
         cached_decision = self.cache.get(prompt) if not forced_mode else None
         if cached_decision:
             decision = cached_decision
@@ -469,13 +516,21 @@ class AdaptiveAgentDispatcher:
             },
         )
 
-        # 2. 檢驗高風險掛起
+        # 4. 檢驗高風險掛起
         if decision.require_human_confirmation:
             suspended = self.suspension_manager.suspend(
                 prompt=prompt,
                 target_mode=decision.mode.value,
                 risk_level=decision.risk_level.value,
                 context=context,
+            )
+            self.audit_logger.record_event(
+                event_type="TASK_SUSPENDED",
+                prompt=prompt,
+                mode_used=decision.mode.value,
+                risk_level=decision.risk_level.value,
+                details={"task_id": suspended.task_id, "reasoning": decision.reasoning},
+                operator_id=operator_id,
             )
             yield RouterStreamChunk(
                 event=StreamEventType.TASK_SUSPENDED,
@@ -485,7 +540,12 @@ class AdaptiveAgentDispatcher:
             )
             return
 
-        # 3. 執行模式
+        # 5. 工具層級 RBAC 角色權限過濾 (OWASP LLM03 & LLM06)
+        authorized_tools = [
+            t for t in self.tools if ToolRBACGuard.verify_tool_access(t, user_roles)[0]
+        ]
+
+        # 6. 執行模式
         executor = self.mode_registry.get(decision.mode, self.mode_registry[AgentMode.SINGLE_TURN])
         
         # 發送執行開始信號
@@ -497,7 +557,7 @@ class AdaptiveAgentDispatcher:
 
         # 非同步執行運算 (避免卡死 Event Loop)
         try:
-            result = await asyncio.to_thread(executor.run, prompt=prompt, tools=self.tools, context=context)
+            result = await asyncio.to_thread(executor.run, prompt=prompt, tools=authorized_tools, context=context)
         except CircuitBreakerException as cbe:
             yield RouterStreamChunk(
                 event=StreamEventType.TASK_FAILED,
@@ -521,8 +581,19 @@ class AdaptiveAgentDispatcher:
                 data={"step_detail": step},
             )
 
-        # 個資脫敏
+        # 個資脫敏與系統提示詞洩漏審查 (OWASP LLM02 & LLM07)
         sanitized_output = OutputPIISanitizerRail.sanitize(result.output)
+        sanitized_output, has_leak, leak_details = SystemPromptLeakGuard.inspect_and_sanitize(sanitized_output)
+
+        # 記錄審計日誌
+        self.audit_logger.record_event(
+            event_type="TASK_COMPLETED" if result.success else "TASK_FAILED",
+            prompt=prompt,
+            mode_used=result.mode_used.value,
+            risk_level=decision.risk_level.value,
+            details={"tokens": result.total_tokens_used or 0, "success": result.success},
+            operator_id=operator_id,
+        )
 
         # 模擬串流 Token 增量推送 (依段落或 Token 分塊)
         paragraphs = sanitized_output.split("\n")

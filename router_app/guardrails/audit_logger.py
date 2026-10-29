@@ -9,6 +9,7 @@
 import hashlib
 import json
 import os
+import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, Field
@@ -38,6 +39,7 @@ class TamperProofAuditLogger:
         self._records: List[AuditRecord] = []
         self._last_hash = self.GENESIS_HASH
         self._counter = 0
+        self._lock = threading.Lock()
 
         # 若檔案已存在，初始化最後一筆雜湊
         if self.log_file_path and os.path.exists(self.log_file_path):
@@ -69,53 +71,55 @@ class TamperProofAuditLogger:
     ) -> AuditRecord:
         """
         記錄一筆不可篡改審計事件
-        強制在落盤前執行 PII 脫敏，並更新密碼學雜湊鏈
+        強制在落盤前執行 PII 脫敏，並更新密碼學雜湊鏈 (執行緒安全)
         """
-        self._counter += 1
-        record_id = f"aud_{self._counter:08d}"
+        with self._lock:
+            self._counter += 1
+            record_id = f"aud_{self._counter:08d}"
 
-        # 1. 產生提問特徵指紋 (SHA-256)
-        prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+            # 1. 產生提問特徵指紋 (SHA-256)
+            prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
-        # 2. 詳情進行 PII 深度脫敏
-        raw_details = details or {}
-        sanitized_details_str = OutputPIISanitizerRail.sanitize(json.dumps(raw_details, ensure_ascii=False, default=str))
-        sanitized_details = json.loads(sanitized_details_str)
+            # 2. 詳情進行 PII 深度脫敏
+            raw_details = details or {}
+            sanitized_details_str = OutputPIISanitizerRail.sanitize(json.dumps(raw_details, ensure_ascii=False, default=str))
+            sanitized_details = json.loads(sanitized_details_str)
 
-        # 3. 準備載荷內容以計算當前雜湊
-        payload_to_hash = json.dumps({
-            "record_id": record_id,
-            "event_type": event_type,
-            "operator_id": operator_id,
-            "prompt_hash": prompt_hash,
-            "mode_used": mode_used,
-            "risk_level": risk_level,
-            "details": sanitized_details,
-        }, sort_keys=True)
+            # 3. 準備載荷內容以計算當前雜湊
+            payload_to_hash = json.dumps({
+                "record_id": record_id,
+                "event_type": event_type,
+                "operator_id": operator_id,
+                "prompt_hash": prompt_hash,
+                "mode_used": mode_used,
+                "risk_level": risk_level,
+                "details": sanitized_details,
+            }, sort_keys=True)
 
-        current_hash = self._calculate_hash(self._last_hash, payload_to_hash)
+            current_hash = self._calculate_hash(self._last_hash, payload_to_hash)
 
-        record = AuditRecord(
-            record_id=record_id,
-            event_type=event_type,
-            operator_id=operator_id,
-            prompt_hash=prompt_hash,
-            mode_used=mode_used,
-            risk_level=risk_level,
-            details=sanitized_details,
-            prev_hash=self._last_hash,
-            current_hash=current_hash,
-        )
+            record = AuditRecord(
+                record_id=record_id,
+                event_type=event_type,
+                operator_id=operator_id,
+                prompt_hash=prompt_hash,
+                mode_used=mode_used,
+                risk_level=risk_level,
+                details=sanitized_details,
+                prev_hash=self._last_hash,
+                current_hash=current_hash,
+            )
 
-        self._records.append(record)
-        self._last_hash = current_hash
+            self._records.append(record)
+            self._last_hash = current_hash
 
-        # 4. 持久化寫入磁碟 (JSON Lines)
-        if self.log_file_path:
-            with open(self.log_file_path, "a", encoding="utf-8") as f:
-                f.write(record.model_dump_json() + "\n")
+            # 4. 持久化寫入磁碟 (JSON Lines)
+            if self.log_file_path:
+                with open(self.log_file_path, "a", encoding="utf-8") as f:
+                    f.write(record.model_dump_json() + "\n")
+                    f.flush()
 
-        return record
+            return record
 
     @classmethod
     def _verify_core(cls, log_file_path: Optional[str]) -> Tuple[bool, int, Optional[str]]:

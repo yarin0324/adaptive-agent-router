@@ -486,6 +486,91 @@ class TestAdaptiveAgentRouterSuite(unittest.TestCase):
             if os.path.exists(audit_path):
                 os.remove(audit_path)
 
+    def test_multithreaded_audit_logger_concurrency(self):
+        """測試高併發多執行緒同時寫入不可篡改日誌，驗證雜湊鏈絕不斷裂"""
+        import tempfile
+        import threading
+        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as tf:
+            concur_log_path = tf.name
+
+        try:
+            logger = TamperProofAuditLogger(log_file_path=concur_log_path)
+            num_threads = 10
+            events_per_thread = 20
+
+            def worker(thread_idx: int):
+                for i in range(events_per_thread):
+                    logger.record_event(
+                        event_type="CONCURRENT_TASK",
+                        prompt=f"Thread-{thread_idx} Request-{i}",
+                        mode_used="mode_1_single_turn",
+                        risk_level="low",
+                        details={"thread": thread_idx, "idx": i},
+                        operator_id=f"worker_{thread_idx}",
+                    )
+
+            threads = [threading.Thread(target=worker, args=(t,)) for t in range(num_threads)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            # 驗證總筆數是否等於 10 * 20 = 200，且雜湊鏈 100% 完整未受損
+            valid, count, err = logger.verify_file_integrity()
+            self.assertTrue(valid, f"雜湊鏈校驗失敗: {err}")
+            self.assertEqual(count, num_threads * events_per_thread)
+            self.assertIsNone(err)
+        finally:
+            if os.path.exists(concur_log_path):
+                os.remove(concur_log_path)
+
+    def test_rbac_flexible_role_normalization(self):
+        """測試 RBAC 對各類角色格式 (字串、逗號分隔、集合) 的彈性適應"""
+        from router_app.tools.base_tool import BaseTool
+
+        class HighRiskTool(BaseTool):
+            name = "high_risk_action"
+            description = "高風險工具"
+            risk_level = "high"
+            def execute(self, **kwargs):
+                return "OK"
+
+        tool = HighRiskTool()
+        # 測試字串格式 "operator, auditor"
+        allowed_str, _ = ToolRBACGuard.verify_tool_access(tool, user_roles="operator, auditor")
+        self.assertTrue(allowed_str)
+
+        # 測試單一字串 "guest"
+        allowed_guest, _ = ToolRBACGuard.verify_tool_access(tool, user_roles="guest")
+        self.assertFalse(allowed_guest)
+
+        # 測試集合 set
+        allowed_set, _ = ToolRBACGuard.verify_tool_access(tool, user_roles={"operator"})
+        self.assertTrue(allowed_set)
+
+    def test_aprocess_stream_security_and_ratelimit(self):
+        """測試非同步 SSE 串流引擎完整套用頻率限制與身分稽核"""
+        import asyncio
+
+        async def run_stream():
+            dispatcher = AdaptiveAgentDispatcher(enable_logging=False)
+            dispatcher.rate_limiter.config.rpm = 1
+
+            # 第 1 通正常請求
+            chunks_1 = []
+            async for c in dispatcher.aprocess_stream("請幫我萃取資料", client_id="stream_user_1"):
+                chunks_1.append(c)
+            self.assertTrue(any(c.event.value == "task_completed" for c in chunks_1))
+
+            # 第 2 通同 client_id 應觸發限流 TASK_FAILED
+            chunks_2 = []
+            async for c in dispatcher.aprocess_stream("第二通請求", client_id="stream_user_1"):
+                chunks_2.append(c)
+            self.assertTrue(any(c.event.value == "task_failed" for c in chunks_2))
+            self.assertTrue(any("超出請求頻率上限" in c.message for c in chunks_2))
+
+        asyncio.run(run_stream())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@
 即時監控每分鐘請求數 (RPM) 與每分鐘 Token 消耗量 (TPM)。
 """
 
+import threading
 import time
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
@@ -42,6 +43,7 @@ class SlidingWindowRateLimiter:
         self._request_timestamps: Dict[str, List[float]] = defaultdict(list)
         # client_id -> (時間戳, token數) 清單
         self._token_records: Dict[str, List[Tuple[float, int]]] = defaultdict(list)
+        self._lock = threading.Lock()
 
     def _cleanup_expired(self, client_id: str, now: float):
         """清除超過 60 秒的時間戳"""
@@ -60,45 +62,46 @@ class SlidingWindowRateLimiter:
         estimated_tokens: int = 0,
     ) -> Tuple[bool, str, int]:
         """
-        校驗是否超出頻率與額度
+        校驗是否超出頻率與額度 (執行緒安全)
         回傳: (是否允許, 原因說明, 需等待秒數 Retry-After)
         """
-        now = time.time()
+        with self._lock:
+            now = time.time()
 
-        # 1. 檢驗單次 Prompt 炸彈 (字元長度防護)
-        if len(prompt_str) > self.config.max_prompt_length_chars:
-            return (
-                False,
-                f"阻斷 Token 炸彈攻擊：Prompt 長度 ({len(prompt_str)} 字元) 超出單次上限 ({self.config.max_prompt_length_chars} 字元)。",
-                60,
-            )
+            # 1. 檢驗單次 Prompt 炸彈 (字元長度防護)
+            if len(prompt_str) > self.config.max_prompt_length_chars:
+                return (
+                    False,
+                    f"阻斷 Token 炸彈攻擊：Prompt 長度 ({len(prompt_str)} 字元) 超出單次上限 ({self.config.max_prompt_length_chars} 字元)。",
+                    60,
+                )
 
-        self._cleanup_expired(client_id, now)
+            self._cleanup_expired(client_id, now)
 
-        # 2. 檢驗每分鐘請求次數 (RPM)
-        current_rpm = len(self._request_timestamps[client_id])
-        if current_rpm >= self.config.max_requests_per_minute:
-            oldest_ts = self._request_timestamps[client_id][0]
-            retry_after = max(1, int(60.0 - (now - oldest_ts)))
-            return (
-                False,
-                f"超出請求頻率上限 (RPM: {current_rpm} >= {self.config.max_requests_per_minute})，啟動頻率限制閥門。",
-                retry_after,
-            )
+            # 2. 檢驗每分鐘請求次數 (RPM)
+            current_rpm = len(self._request_timestamps[client_id])
+            if current_rpm >= self.config.max_requests_per_minute:
+                oldest_ts = self._request_timestamps[client_id][0]
+                retry_after = max(1, int(60.0 - (now - oldest_ts)))
+                return (
+                    False,
+                    f"超出請求頻率上限 (RPM: {current_rpm} >= {self.config.max_requests_per_minute})，啟動頻率限制閥門。",
+                    retry_after,
+                )
 
-        # 3. 檢驗每分鐘 Token 額度 (TPM)
-        current_tpm = sum(tok for _, tok in self._token_records[client_id])
-        if current_tpm + estimated_tokens > self.config.max_tokens_per_minute:
-            retry_after = 30
-            return (
-                False,
-                f"超出每分鐘 Token 預算額度 (TPM: {current_tpm} + {estimated_tokens} > {self.config.max_tokens_per_minute})，啟動帳單保護。",
-                retry_after,
-            )
+            # 3. 檢驗每分鐘 Token 額度 (TPM)
+            current_tpm = sum(tok for _, tok in self._token_records[client_id])
+            if current_tpm + estimated_tokens > self.config.max_tokens_per_minute:
+                retry_after = 30
+                return (
+                    False,
+                    f"超出每分鐘 Token 預算額度 (TPM: {current_tpm} + {estimated_tokens} > {self.config.max_tokens_per_minute})，啟動帳單保護。",
+                    retry_after,
+                )
 
-        # 記錄本次請求
-        self._request_timestamps[client_id].append(now)
-        if estimated_tokens > 0:
-            self._token_records[client_id].append((now, estimated_tokens))
+            # 記錄本次請求
+            self._request_timestamps[client_id].append(now)
+            if estimated_tokens > 0:
+                self._token_records[client_id].append((now, estimated_tokens))
 
-        return True, "Rate limit check passed.", 0
+            return True, "Rate limit check passed.", 0
