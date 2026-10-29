@@ -48,7 +48,7 @@ from .guardrails import (
     TaskCheckpointer,
 )
 from .cache import RouteCache, ELORatingTuner
-from .tracing import TraceContext
+from .tracing import TraceContext, metrics
 
 
 
@@ -107,11 +107,15 @@ class AdaptiveAgentDispatcher:
         prompt: str,
         context: Optional[Dict[str, Any]] = None,
         forced_mode: Optional[AgentMode] = None,
+        shadow_mode: Optional[AgentMode] = None,
         trace_id: Optional[str] = None,
     ) -> ExecutionResult:
         """
         核心執行函式：接收問題 ➜ 快取檢索 ➜ 路由器決策 ➜ 派發至最適模式 ➜ 返回結果
+        支援影子流量乾跑 (Shadow Routing / Canary Evaluation) 與 Prometheus 遙測。
         """
+        import time
+        start_ts = time.time()
         tracer = TraceContext(trace_id=trace_id)
         span_total = tracer.start_span("process_request", {"prompt": prompt})
 
@@ -119,6 +123,7 @@ class AdaptiveAgentDispatcher:
         is_safe, security_msg = InputSecurityRail.validate_prompt(prompt)
         if not is_safe:
             span_total.finish("BLOCKED_BY_INPUT_RAIL")
+            metrics.record_request(mode="input_rail", tier="none", status="blocked")
             blocked_result = ExecutionResult(
                 output=f"【安全防禦攔截 (Input Rail Blocked)】\n{security_msg}",
                 mode_used=AgentMode.VERIFIER_GATED,
@@ -134,6 +139,7 @@ class AdaptiveAgentDispatcher:
         if cached_decision:
             decision = cached_decision
             is_cached = True
+            metrics.record_cache_hit()
         elif forced_mode:
             decision = RoutingDecision(
                 mode=forced_mode,
@@ -153,6 +159,7 @@ class AdaptiveAgentDispatcher:
 
         # 2. 檢驗高風險掛起 (Human-in-the-Loop Suspend Pattern)
         if decision.require_human_confirmation:
+            metrics.record_suspended_task()
             suspended = self.suspension_manager.suspend(
                 prompt=prompt,
                 target_mode=decision.mode.value,
@@ -160,6 +167,7 @@ class AdaptiveAgentDispatcher:
                 context=context
             )
             span_total.finish("SUSPENDED")
+            metrics.record_request(mode=decision.mode.value, tier=decision.model_tier.value, status="suspended")
             return ExecutionResult(
                 output=(
                     f"【安全門控攔截 (Task Suspended)】\n"
@@ -200,8 +208,26 @@ class AdaptiveAgentDispatcher:
             result.metadata["telemetry"] = breaker.get_telemetry()
             result.metadata["trace"] = tracer.export()
 
+            # 影子流量 A/B 乾跑評估 (Shadow Canary Evaluation)
+            if shadow_mode and shadow_mode in self.mode_registry:
+                shadow_start = time.time()
+                shadow_executor = self.mode_registry[shadow_mode]
+                shadow_res = shadow_executor.run(prompt=prompt, tools=self.tools, context=context)
+                shadow_dur = time.time() - shadow_start
+                result.metadata["shadow_evaluation"] = {
+                    "primary_mode": decision.mode.value,
+                    "shadow_mode": shadow_mode.value,
+                    "primary_tokens": result.total_tokens_used or 0,
+                    "shadow_tokens": shadow_res.total_tokens_used or 0,
+                    "token_delta": (shadow_res.total_tokens_used or 0) - (result.total_tokens_used or 0),
+                    "shadow_latency_ms": round(shadow_dur * 1000, 2),
+                    "shadow_output_preview": shadow_res.output[:150] + "...",
+                }
+                metrics.record_request(mode=shadow_mode.value, tier="shadow", status="shadow_success")
+
         except CircuitBreakerException as cbe:
             span_exec.finish("CIRCUIT_BREAKER_TRIPPED")
+            metrics.record_circuit_breaker_trip()
             result = ExecutionResult(
                 output=f"⚠️ {str(cbe)}",
                 mode_used=decision.mode,
@@ -213,6 +239,14 @@ class AdaptiveAgentDispatcher:
                 }
             )
 
+        duration = time.time() - start_ts
+        metrics.record_request(
+            mode=decision.mode.value,
+            tier=decision.model_tier.value,
+            status="success" if result.success else "failed",
+            duration_seconds=duration,
+        )
+        metrics.record_tokens(consumed=result.total_tokens_used or 0)
         span_total.finish("OK" if result.success else "FAILED")
 
         if self.enable_logging:

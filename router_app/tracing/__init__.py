@@ -1,3 +1,4 @@
 from .tracer import TraceContext, TraceSpan
+from .metrics import MetricsCollector, metrics
 
-__all__ = ["TraceContext", "TraceSpan"]
+__all__ = ["TraceContext", "TraceSpan", "MetricsCollector", "metrics"]

@@ -244,6 +244,72 @@ class TestAdaptiveAgentRouterSuite(unittest.TestCase):
         res_set = ContextCompressor.fold_structured_data({"tags": {1, 2, 3}})
         self.assertIn("tags", res_set)
 
+    def test_sqlite_state_storage(self):
+        """測試 SQLite ACID 雲原生持久化儲存"""
+        import tempfile
+        from router_app import SQLiteStateStorage, SuspendedTask
+
+        with tempfile.NamedTemporaryFile(suffix=".db") as tf:
+            db_path = tf.name
+        
+        storage = SQLiteStateStorage(db_path=db_path)
+        task = SuspendedTask(
+            task_id="test_task_001",
+            prompt="強制刪除訂單表",
+            target_mode="mode_6_verifier_gated",
+            risk_level="critical",
+            context_snapshot={"user": "admin"}
+        )
+        storage.save_task(task)
+
+        # 檢索與持久化確認
+        fetched = storage.get_task("test_task_001")
+        self.assertIsNotNone(fetched)
+        self.assertEqual(fetched.prompt, "強制刪除訂單表")
+
+        # 狀態更新確認
+        updated = storage.update_task_status("test_task_001", status="APPROVED")
+        self.assertEqual(updated.status, "APPROVED")
+
+        # 刪除取回 (pop)
+        popped = storage.pop_task("test_task_001")
+        self.assertIsNotNone(popped)
+        self.assertIsNone(storage.get_task("test_task_001"))
+
+        if os.path.exists(db_path):
+            os.remove(db_path)
+
+    def test_shadow_canary_routing(self):
+        """測試影子流量乾跑與 A/B Canary 評估"""
+        res = self.dispatcher.process(
+            "請幫我萃取發票統編與金額",
+            shadow_mode=AgentMode.REACT
+        )
+        self.assertIn("shadow_evaluation", res.metadata)
+        shadow_info = res.metadata["shadow_evaluation"]
+        self.assertEqual(shadow_info["primary_mode"], "mode_1_single_turn")
+        self.assertEqual(shadow_info["shadow_mode"], "mode_2_react")
+        self.assertIn("token_delta", shadow_info)
+
+    def test_prometheus_metrics_export(self):
+        """測試 Prometheus 原生指標導出"""
+        from router_app import metrics
+        prom_text = metrics.export_prometheus_text()
+        self.assertIn("router_requests_total", prom_text)
+        self.assertIn("router_cache_hits_total", prom_text)
+        self.assertIn("router_tokens_consumed_total", prom_text)
+
+    def test_battle_card_and_mermaid_generation(self):
+        """測試視覺化決策戰鬥卡與 Mermaid 圖生成"""
+        res = self.dispatcher.process("請幫我規劃微服務上雲計畫與步驟分解")
+        card = res.to_battle_card("請幫我規劃微服務上雲計畫與步驟分解")
+        mermaid = res.to_mermaid()
+
+        self.assertIn("AdaptiveAgentRouter 執行審計戰鬥卡", card)
+        self.assertIn("Mermaid Topology", card)
+        self.assertIn("flowchart LR", mermaid)
+        self.assertIn("Router", mermaid)
+
 
 if __name__ == "__main__":
     unittest.main()

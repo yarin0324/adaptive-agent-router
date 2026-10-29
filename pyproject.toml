@@ -44,6 +44,9 @@ full = [
     "rich>=13.7.0",
 ]
 
+[project.scripts]
+adaptive-agent-router = "router_app.server.__main__:main"
+
 [project.urls]
 Homepage = "https://github.com/yarin0324/adaptive-agent-router"
 Repository = "https://github.com/yarin0324/adaptive-agent-router.git"

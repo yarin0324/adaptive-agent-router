@@ -16,15 +16,20 @@ class SuspendedTask(BaseModel):
     target_mode: str
     risk_level: str
     created_at: float = Field(default_factory=time.time)
+    reviewed_at: Optional[float] = None
     context_snapshot: Dict[str, Any] = Field(default_factory=dict)
     status: str = "SUSPENDED"  # SUSPENDED, APPROVED, REJECTED
 
 
 class TaskSuspensionManager:
-    """任務掛起管理中心"""
+    """任務掛起管理中心 (支援記憶體與 SQLite/Redis 外部儲存)"""
 
-    def __init__(self):
-        self._suspended_tasks: Dict[str, SuspendedTask] = {}
+    def __init__(self, storage: Optional[Any] = None):
+        if storage is None:
+            from .storage import MemoryStateStorage
+            self.storage = MemoryStateStorage()
+        else:
+            self.storage = storage
 
     def suspend(
         self,
@@ -40,19 +45,16 @@ class TaskSuspensionManager:
             risk_level=risk_level,
             context_snapshot=context or {},
         )
-        self._suspended_tasks[task.task_id] = task
+        self.storage.save_task(task)
         return task
 
     def get_task(self, task_id: str) -> Optional[SuspendedTask]:
-        return self._suspended_tasks.get(task_id)
+        return self.storage.get_task(task_id)
 
     def review_task(self, task_id: str, approved: bool) -> Optional[SuspendedTask]:
         """外部審批簽核處理"""
-        task = self._suspended_tasks.get(task_id)
-        if not task:
-            return None
-        task.status = "APPROVED" if approved else "REJECTED"
-        return task
+        status = "APPROVED" if approved else "REJECTED"
+        return self.storage.update_task_status(task_id, status=status)
 
     def pop_task(self, task_id: str) -> Optional[SuspendedTask]:
-        return self._suspended_tasks.pop(task_id, None)
+        return self.storage.pop_task(task_id)

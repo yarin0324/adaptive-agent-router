@@ -86,3 +86,13 @@ class ExecutionResult(BaseModel):
     total_tokens_used: Optional[int] = Field(default=0, description="消耗 Token 數估計")
     success: bool = Field(default=True, description="任務是否執行成功")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="專案自訂的擴充中繼資料")
+
+    def to_mermaid(self) -> str:
+        """生成本次執行的 Mermaid 狀態流向圖"""
+        from .tracing.battle_card import BattleCardGenerator
+        return BattleCardGenerator.generate_mermaid(self)
+
+    def to_battle_card(self, prompt: str = "") -> str:
+        """生成 Markdown 決策與審計戰鬥卡片"""
+        from .tracing.battle_card import BattleCardGenerator
+        return BattleCardGenerator.generate_battle_card(self, prompt=prompt)

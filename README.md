@@ -170,25 +170,100 @@ print(result.output)
 
 ---
 
-## 7. 跨領域整合實戰案例 (End-to-End Integration Examples)
+## 7. 殺手級生產配方 (Production Recipes)
 
-專案提供多領域端到端生產範例與進階功能演練，位於 `examples/` 目錄：
-- **四大進階架構機制實證演練**：[`examples/advanced_features_demo.py`](examples/advanced_features_demo.py)
-  展示非同步 SSE 串流推送、自適應 ELO 等級分反饋調校、OpenAPI/MCP 工具規格吸納與 Subprocess 隔離沙盒。
-- **大量票據與憑證 OCR 智慧解析**：[`examples/plug_into_ocr_example.py`](examples/plug_into_ocr_example.py)
-  展示如何將模糊辨識問題自動導向 ReAct 邊做邊調參數，並將批次十萬張憑證導向 Planner 拆解。
-- **量化投資與金融智慧風控**：[`examples/plug_into_stock_example.py`](examples/plug_into_stock_example.py)
-  展示下單交易指令如何觸發 `Verifier-Gated` 人機審批掛起，以及重大決策如何啟動正反方多代理對抗辯論。
+### 7.1 配方 1: 零代碼 OpenAI 相容閘道 (Zero-Code Reverse Proxy)
+本專案原生內建相容 OpenAI 標準之高效能 HTTP 網關伺服器（零外部重型依賴）：
+```bash
+# 啟動網關 (支援並發請求、串流 SSE 與 Prometheus 指標)
+adaptive-agent-router --port 8000
+# 或透過模組啟動: python -m router_app.server --port 8000
+```
+外部任何前端（Open WebUI, Dify, Cursor, Claude Code）只需設定 `OPENAI_BASE_URL="http://localhost:8000/v1"`，即可**0 行代碼遷移**，即時享有 10 大模式動態分流、AST 語法樹護欄與 Token 壓縮！
+
+### 7.2 配方 2: 非同步即時串流輸出 (Async Streaming SSE)
+```python
+import asyncio
+from router_app import AdaptiveAgentDispatcher
+
+async def main():
+    dispatcher = AdaptiveAgentDispatcher()
+    # 逐段接收路由事件、思考進度與 Token 增量
+    async for chunk in dispatcher.aprocess_stream("調查服務延遲飆高原因"):
+        if chunk.delta:
+            print(chunk.delta, end="", flush=True)
+
+asyncio.run(main())
+```
+
+### 7.3 配方 3: 雲原生 SQLite/Redis 跨重啟持久化狀態機 (Crash-Proof HITL)
+```python
+from router_app import AdaptiveAgentDispatcher, TaskSuspensionManager, SQLiteStateStorage
+
+# 配置 SQLite ACID 本地持久化 (伺服器或容器重啟任務絕不遺失)
+storage = SQLiteStateStorage(db_path="production_tasks.db")
+suspension_mgr = TaskSuspensionManager(storage=storage)
+dispatcher = AdaptiveAgentDispatcher()
+dispatcher.suspension_manager = suspension_mgr
+
+# 觸發危險操作掛起 ➜ 伺服器可安心重啟 ➜ 管理員外部喚醒放行
+result = dispatcher.process("連進主庫刪除過期訂單")
+# 取得 task_id 後呼叫: dispatcher.resume_task(task_id, approved=True)
+```
+
+### 7.4 配方 4: 零代碼 OpenAPI 3.0 / FastMCP 工具自動吸納
+```python
+from router_app import AdaptiveAgentDispatcher, ToolLoader
+
+# 直接讀取既有微服務 Swagger/OpenAPI JSON 規格
+openapi_spec = {
+    "paths": {
+        "/api/v1/orders": {"get": {"operationId": "list_orders", "summary": "查詢訂單"}},
+        "/api/v1/orders/purge": {"delete": {"operationId": "purge_orders", "summary": "清空訂單"}}
+    }
+}
+# 自動解析並按 HTTP Method 映射風險等級 (GET: LOW, DELETE: CRITICAL)
+tools = ToolLoader.from_openapi_spec(openapi_spec)
+dispatcher = AdaptiveAgentDispatcher(custom_tools=tools)
+```
+
+### 7.5 配方 5: Prometheus 原生監控與審計戰鬥卡
+```python
+from router_app import AdaptiveAgentDispatcher, metrics
+
+dispatcher = AdaptiveAgentDispatcher()
+result = dispatcher.process("規劃微服務上雲步驟")
+
+# 1. 輸出 Prometheus 標準指標 (供 Grafana 抓取)
+print(metrics.export_prometheus_text())
+
+# 2. 生成合規審計戰鬥卡 (含 Mermaid 狀態轉換圖)
+print(result.to_battle_card())
+```
 
 ---
 
-## 8. 安全性與漏洞回報 (Security Policy)
+## 8. 跨領域整合實戰案例 (End-to-End Integration Examples)
+
+專案提供完整多領域端到端生產範例，位於 `examples/` 目錄：
+- **全模式與各算力階層端到端效果展示**：[`examples/all_modes_showcase.py`](examples/all_modes_showcase.py)
+  執行 `python examples/all_modes_showcase.py` 即時檢驗 10 大模式與 SSE 串流之真實終端輸出。
+- **四大進階架構機制實證演練**：[`examples/advanced_features_demo.py`](examples/advanced_features_demo.py)
+  展示非同步 SSE 串流、自適應 ELO 反饋調校、OpenAPI/MCP 工具吸納與 Subprocess 隔離沙盒。
+- **大量票據與憑證 OCR 智慧解析**：[`examples/plug_into_ocr_example.py`](examples/plug_into_ocr_example.py)
+  展示模糊辨識自動導向 ReAct，批次十萬張憑證導向 Planner 拆解。
+- **量化投資與金融智慧風控**：[`examples/plug_into_stock_example.py`](examples/plug_into_stock_example.py)
+  展示下單交易觸發 `Verifier-Gated` 人機審批掛起，以及重大決策啟動專家辯論。
+
+---
+
+## 9. 安全性與漏洞回報 (Security Policy)
 
 本專案將執行安全性列為最高優先級別。若您在 AST 語法解析器、安全護欄或狀態機中發現潛在安全漏洞，請**切勿公開提出 Issue**。請發送電子郵件至維護團隊信箱進行負責任的漏洞披露，我們將在 48 小時內進行評估與修補發版。
 
 ---
 
-## 9. 授權條款與貢獻指南 (License & Contributing)
+## 10. 授權條款與貢獻指南 (License & Contributing)
 
 - 本專案採用 [MIT License](LICENSE) 授權開源。
 - 歡迎透過 Pull Request 貢獻新的 Agent 模式實作、語意原型字典或安全檢驗規則。提交前請確保通過 `python -m unittest tests/test_router_suite.py` 測試。

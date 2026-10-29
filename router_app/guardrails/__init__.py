@@ -5,6 +5,7 @@ from .rails import InputSecurityRail, OutputPIISanitizerRail
 from .checkpointer import TaskCheckpointer, CheckpointSnapshot
 from .ast_guard import PythonASTSecurityGuard, SQLASTSecurityGuard
 from .sandbox import RestrictedSubprocessSandbox, SandboxExecutionResult
+from .storage import BaseStateStorage, MemoryStateStorage, SQLiteStateStorage
 
 __all__ = [
     "TaskCircuitBreaker",
@@ -21,4 +22,7 @@ __all__ = [
     "SQLASTSecurityGuard",
     "RestrictedSubprocessSandbox",
     "SandboxExecutionResult",
+    "BaseStateStorage",
+    "MemoryStateStorage",
+    "SQLiteStateStorage",
 ]
