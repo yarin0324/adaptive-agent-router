@@ -104,13 +104,35 @@ flowchart TD
 - **Input Rail**：主動阻斷 Prompt Injection 與系統指令覆蓋 (System Override)。
 - **Output Rail**：交付前自動掃描並脫敏機敏身分證字號、信用卡號、電子郵件與 API Key，替換為 `[REDACTED_PII]`。
 
-### 2.9 長流程任務檢查點 (Task Checkpointer & State Snapshots)
-Planner-Executor 每完成一個子步驟即序列化一筆不可變快照（Snapshot）。若後續步驟中斷，呼叫端可直接從最後成功的 Checkpoint 接續執行。
+### 2.9 動態重規劃器與任務檢查點 (Dynamic Replanner & Task Checkpointer)
+借鏡 Plan-and-Solve Prompting (Wang et al., 2023) 與 LangGraph Checkpointer：
+- **Dynamic Replanner**：解決靜態計畫盲跑問題。每當工作者完成一個子步驟，Replanner 自動檢視中間結果，動態自適應追加、修改或修剪後續步驟。
+- **Task Checkpointer**：每步序列化不可變快照（Snapshot），支援故障中斷時的斷點續傳。
 
 ### 2.10 RRF 倒數排名融合記憶檢索 (Reciprocal Rank Fusion - RRF Engine)
 借鏡 Cormack et al. (SIGIR 2009) 論文與 MySecondBrain 實踐，情境記憶層原生內建純 Python RRF 混合召回：
 - 結合**精確關鍵字排名 (Lexical Rank)** 與 **語意餘弦相似度排名 (Semantic Rank)**。
 - 透過名次倒數公式 $RRF(d) = \sum \frac{w}{k + r(d)}$ 進行多數決投票，兼顧專有名詞代號的精確命中與抽象概念的關聯召回。
+
+### 2.11 對抗式量化評審反思 (Reflexion Rubric Scoring)
+借鏡 Reflexion (Shinn et al., NeurIPS 2023)，徹底消除自評確認偏差：
+- 獨立 Critic 依據三維量化指標表 (Rubric) 打分：邏輯嚴謹度、邊界防禦度、漏洞覆蓋度。
+- **加權總分門檻強制要求 $\ge 8.5$ 分**，未達標強制退回重寫優化。
+
+### 2.12 影子乾跑變更預覽 (Dry-Run Simulation Diff)
+借鏡 Terraform Plan 雲原生治理哲學：
+- 門控機制在掛起任務前，自動模擬輸出**影響評估報告**（異動資料表、受影響記錄數、預估曝險金額）。
+- 審批人員依據客觀 Diff 報告進行審核放行，消除黑盒操作恐懼。
+
+### 2.13 負反饋避坑記憶 (Negative Observation Memory)
+借鏡 AutoGPT 避坑機制：
+- ReAct 模式在遭遇工具執行例外或無效端點時，自動將該動作加入 `Forbidden Actions` 禁區清單。
+- 下一輪迭代強制注入避坑提示，杜絕 Agent 原地死磕無效路徑。
+
+### 2.14 意見收斂早停定案 (Debate Early Stopping by Convergence)
+借鏡 MetaGPT SOP 協調哲學：
+- 首席仲裁者每輪動態計算正反方論點之「歧異度 (Disagreement Delta)」。
+- 若歧異度 $\le 0.15$，代表已取得架構共識，第 2 輪即時觸發早停 (Early Stop) 定案，節省 30%+ 辯論 Token 消耗。
 
 ---
 
