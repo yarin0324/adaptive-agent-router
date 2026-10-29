@@ -23,6 +23,8 @@ class InputSecurityRail:
     @classmethod
     def validate_prompt(cls, prompt: str) -> Tuple[bool, str]:
         """驗證使用者輸入，若發現 Injection 嘗試則返回 False"""
+        if not prompt or not isinstance(prompt, str):
+            return True, "Empty or non-string prompt."
         p_lower = prompt.lower()
         for pattern in cls.INJECTION_PATTERNS:
             if re.search(pattern, p_lower):
@@ -45,6 +47,8 @@ class OutputPIISanitizerRail:
     @classmethod
     def sanitize(cls, text: str) -> str:
         """對輸出內容執行自動脫敏 (Masking)"""
+        if not text or not isinstance(text, str):
+            return "" if text is None else str(text)
         sanitized = re.sub(cls.TW_ID_PATTERN, "[REDACTED_ID]", text)
         sanitized = re.sub(cls.CREDIT_CARD_PATTERN, "[REDACTED_CARD]", sanitized)
         sanitized = re.sub(cls.API_KEY_PATTERN, "[REDACTED_API_KEY]", sanitized)

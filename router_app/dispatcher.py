@@ -243,10 +243,18 @@ class AdaptiveAgentDispatcher:
         executor = self.mode_registry.get(mode_enum, self.mode_registry[AgentMode.SINGLE_TURN])
         resume_context = dict(task.context_snapshot)
         resume_context["approved_by_human"] = True
-        result = executor.run(prompt=task.prompt, tools=self.tools, context=resume_context)
-        result.metadata["resume_task_id"] = task_id
-        result.metadata["approved_by_human"] = True
-        return result
+        try:
+            result = executor.run(prompt=task.prompt, tools=self.tools, context=resume_context)
+            result.metadata["resume_task_id"] = task_id
+            result.metadata["approved_by_human"] = True
+            return result
+        except CircuitBreakerException as cbe:
+            return ExecutionResult(
+                output=f"⚠️ 審批放行後執行觸發熔斷防禦: {str(cbe)}",
+                mode_used=mode_enum,
+                success=False,
+                metadata={"circuit_breaker_tripped": True, "resume_task_id": task_id}
+            )
 
     def record_feedback(
         self,
@@ -365,7 +373,22 @@ class AdaptiveAgentDispatcher:
         )
 
         # 非同步執行運算 (避免卡死 Event Loop)
-        result = await asyncio.to_thread(executor.run, prompt=prompt, tools=self.tools, context=context)
+        try:
+            result = await asyncio.to_thread(executor.run, prompt=prompt, tools=self.tools, context=context)
+        except CircuitBreakerException as cbe:
+            yield RouterStreamChunk(
+                event=StreamEventType.TASK_FAILED,
+                message=f"⚠️ 觸發任務熔斷防禦: {str(cbe)}",
+                data={"circuit_breaker_tripped": True},
+            )
+            return
+        except Exception as e:
+            yield RouterStreamChunk(
+                event=StreamEventType.TASK_FAILED,
+                message=f"執行階段異常: {str(e)}",
+                data={"error": str(e)},
+            )
+            return
 
         # 廣播中間步驟進度
         for idx, step in enumerate(result.execution_steps, 1):

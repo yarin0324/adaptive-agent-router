@@ -223,6 +223,27 @@ class TestAdaptiveAgentRouterSuite(unittest.TestCase):
         self.assertIn(StreamEventType.CONTENT_CHUNK, events)
         self.assertIn(StreamEventType.TASK_COMPLETED, events)
 
+    def test_edge_cases_robustness(self):
+        """測試極端邊界防禦與 None 空值防禦"""
+        # 1. 空字串與空白
+        res_empty = self.dispatcher.process("")
+        self.assertIsNotNone(res_empty)
+        res_space = self.dispatcher.process("   \n\t  ")
+        self.assertIsNotNone(res_space)
+
+        # 2. None 輸入防禦
+        is_safe, _ = InputSecurityRail.validate_prompt(None)
+        self.assertTrue(is_safe)
+
+        sanitized_none = OutputPIISanitizerRail.sanitize(None)
+        self.assertEqual(sanitized_none, "")
+
+        # 3. 壓縮器空值與特殊型態序列化防禦
+        self.assertEqual(ContextCompressor.fold_structured_data(None), "{}")
+        # 包含 set 型態依然可被 default=str 容錯序列化
+        res_set = ContextCompressor.fold_structured_data({"tags": {1, 2, 3}})
+        self.assertIn("tags", res_set)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,10 +23,13 @@ class ContextCompressor:
         對巨大陣列或資料庫回傳進行結構化折疊
         保留前 3 筆 (Head) 與末 2 筆 (Tail)，中間折疊並補充摘要
         """
+        if data is None:
+            return "{}"
+
         if isinstance(data, list):
             total_count = len(data)
             if total_count <= max_items:
-                return json.dumps(data, ensure_ascii=False)
+                return json.dumps(data, ensure_ascii=False, default=str)
 
             head = data[:3]
             tail = data[-2:]
@@ -37,9 +40,9 @@ class ContextCompressor:
                 "sample_head": head,
                 "sample_tail": tail,
             }
-            return json.dumps(summary, ensure_ascii=False, indent=2)
+            return json.dumps(summary, ensure_ascii=False, indent=2, default=str)
 
-        return json.dumps(data, ensure_ascii=False)
+        return json.dumps(data, ensure_ascii=False, default=str)
 
     @classmethod
     def prune_text_redundancy(cls, text: str) -> str:
