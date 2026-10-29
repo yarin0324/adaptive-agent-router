@@ -65,16 +65,16 @@ flowchart TD
 
 ---
 
-## 2. 生態系架構定位與競品對比 (Competitive Landscape)
+## 2. 生態系架構定位與設計哲學 (Ecosystem Positioning & Synergy)
 
-下表歸納 AdaptiveAgentRouter 與當前主流開源專案之核心定位差異：
+AdaptiveAgentRouter 深受開源社群優秀專案的啟發。在大型語言模型與代理人架構的快速演進中，各開源專案專注於不同層次的抽象與問題領域。下表整理本專案在生態系中的定位與互補取向：
 
-| 開源專案 / 概念 | 它們在做什麼？ (Scope) | 缺乏的關鍵能力（AdaptiveAgentRouter 核心差異化） |
+| 開源專案 / 概念 | 專注領域 (Core Focus) | 設計取向與架構互補 (Design Philosophy & Synergy) |
 | :--- | :--- | :--- |
-| **RouteLLM** *(LMSYS)* | **模型級路由 (Model Routing)**<br>分析問題該派給便宜的輕量模型還是昂貴的頂級推理模型。 | **只管「換模型」，不管「換架構」**。<br>無法依任務複雜度與不確定性動態切換 ReAct、Planner DAG 拆解或多代理辯論。 |
-| **Semantic Router** *(Aurelio AI)* | **語意向量快篩路由**<br>使用 Embedding 相似度決定走 RAG、查 SQL 或純閒聊。 | **缺少 Agent 執行引擎與生命週期治理**。<br>僅為單點向量比對器，缺乏後續任務迴圈執行、斷路器防護與狀態維護。 |
-| **LangGraph / CrewAI Supervisor** | **主管代理分派 (Supervisor Pattern)**<br>由單一 Leader Agent 分解並指派工作給 Worker Agents。 | **通常綁死在特定多代理框架內**。<br>每個專案需從頭手寫 StateGraph，缺乏通用的開箱即用 10 大架構模式公版與雙維度算力分流。 |
-| **Guardrails AI / NeMo Guardrails** | **安全與合規檢查**<br>檢查 Prompt 與回應是否包含個資、偏見或 Prompt Injection。 | **只管攔截，沒有調度能力**。<br>缺乏任務掛起 (Suspend & Resume)、負反饋避坑與自適應模式自動升級 (Escalation)。 |
+| **RouteLLM** *(LMSYS)* | **模型層級動態選型 (Model Routing)**<br>依輸入複雜度在輕量模型與頂級推理模型間智慧動態路由。 | **從「單純模型路由」延伸至「代理人架構路由」**。<br>借鏡其算力分級思想，AdaptiveAgentRouter 同步評估「架構模式需求（如單次回應 vs 任務拆解 vs 對抗辯論）」與「算力階層（FAST / STANDARD / REASONING）」，形成 2D 雙維度調度矩陣。 |
+| **Semantic Router** *(Aurelio AI)* | **極速語意向量快篩**<br>使用向量相似度快速決定分流路徑 (Fast Semantic Intent Routing)。 | **涵蓋代理人全生命週期治理**。<br>除提供毫秒級原型與雜湊快取外，原生整合 10 大執行引擎、任務熔斷保護、狀態快照與非同步人機審批狀態機。 |
+| **LangGraph / CrewAI** | **複雜多代理人狀態機與協作編排**<br>提供圖狀 (Graph) 與多角色 (Multi-Agent Role-play) 的深層編排框架。 | **輕量通用微核心調度中樞**。<br>專注於「進入具體工作流前」的動態架構分流與安全防禦。能作為上游智慧閘道（Gateway），依任務特徵將請求動態派發給特定 LangGraph 圖或各類外部服務。 |
+| **Guardrails AI / NeMo Guardrails** | **內容安全規範與合規檢查**<br>驗證 Prompt 與輸出文本是否符合安全政策與格式規則。 | **安全護欄與自適應調度深度結合**。<br>除靜態規則檢查外，將安全評級與任務掛起狀態機（Task Suspension FSM）、編譯器級 AST 語法樹阻斷以及自適應降級/升級機制緊密整合。 |
 
 ---
 
@@ -268,7 +268,9 @@ print(result.to_battle_card())
 
 傳統 Agent 執行日誌容易遭受惡意攻擊者或內部人員手動竄改刪除。本專案引入類似區塊鏈之**前驅雜湊鏈 (Cryptographic Hash-Chain)** 審計記錄器：
 
-$$\text{hash}_i = \text{SHA-256}(\text{hash}_{i-1} \parallel \text{sanitized\_payload}_i)$$
+```text
+hash[i] = SHA-256( hash[i-1] || sanitized_payload[i] )
+```
 
 - **隱私零洩漏 (Zero Plaintext Leakage)**：使用者提問只儲存不可逆之 SHA-256 指紋，詳細上下文字段落盤前強制通過 PII 脫敏過濾。
 - **單字元竄改即刻報警**：任何對日誌檔案的單一字元竄改、行刪除、順序調換，皆會導致雜湊鏈斷裂。
