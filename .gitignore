@@ -42,6 +42,10 @@ venv.bak/
 *.swp
 *.swo
 
-# Logs
+# Logs and Databases
 *.log
 logs/
+*.db
+*.sqlite
+*.sqlite3
+*.jsonl
