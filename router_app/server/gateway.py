@@ -195,6 +195,9 @@ class OpenAIGatewayHandler(BaseHTTPRequestHandler):
                     "mode_used": result.mode_used.value,
                     "success": result.success,
                     "steps_count": len(result.execution_steps),
+                    "rag": result.metadata.get("rag"),
+                    "acceleration": result.metadata.get("acceleration"),
+                    "harness": result.metadata.get("harness"),
                 },
             }
 
@@ -228,9 +231,36 @@ class OpenAIGatewayHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps({"error": f"Endpoint not found: {self.path}"}).encode("utf-8"))
 
 
-def run_gateway_server(host: str = "0.0.0.0", port: int = 8000, enable_logging: bool = True):
+def run_gateway_server(
+    host: str = "0.0.0.0",
+    port: int = 8000,
+    enable_logging: bool = True,
+    dispatcher: Optional[AdaptiveAgentDispatcher] = None,
+    enable_rag: bool = True,
+    enable_acceleration: bool = True,
+    enable_harness: bool = True,
+):
     """啟動 OpenAI 相容反向代理網關伺服器"""
-    dispatcher = AdaptiveAgentDispatcher(enable_logging=enable_logging)
+    if dispatcher is None:
+        from ..rag import AdaptiveRAGAdapter, InMemoryVectorRetriever
+        from ..acceleration import LLMAccelerationController
+        from ..harness import AgentHarness
+
+        retriever = InMemoryVectorRetriever()
+        retriever.add_document("corp_01", "Acme Corporation SLA requires 99.95% annual availability with 5% monthly fee credit per downtime hour.")
+        retriever.add_document("corp_02", "Acme Corporate Tax ID is 28459201, headquarters located at Cloud Innovation Park.")
+
+        rag_adapter = AdaptiveRAGAdapter(retriever=retriever) if enable_rag else None
+        acc_controller = LLMAccelerationController() if enable_acceleration else None
+        harness = AgentHarness() if enable_harness else None
+
+        dispatcher = AdaptiveAgentDispatcher(
+            rag_adapter=rag_adapter,
+            acceleration_controller=acc_controller,
+            harness=harness,
+            enable_logging=enable_logging,
+        )
+
     OpenAIGatewayHandler.dispatcher = dispatcher
 
     server = ThreadingHTTPServer((host, port), OpenAIGatewayHandler)

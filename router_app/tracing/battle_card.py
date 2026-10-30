@@ -19,15 +19,40 @@ class BattleCardGenerator:
 
         steps_lines = []
         last_node = "Router"
+
+        # 若有 RAG 自適應檢索，插入檢索節點
+        rag_info = result.metadata.get("rag")
+        if rag_info:
+            rag_strat = rag_info.get("strategy", "hybrid")
+            steps_lines.append(f'    Router --> RAGNode["RAG 檢索: {rag_strat}"]')
+            last_node = "RAGNode"
+
+        # 若有推論加速調度，插入加速調度節點
+        acc_info = result.metadata.get("acceleration")
+        if acc_info:
+            target_worker = acc_info.get("target_node_id", "worker_gpu")
+            cache_tag = "Cache HIT" if acc_info.get("is_cache_hit") else "Cache MISS"
+            steps_lines.append(f'    {last_node} --> AccNode["加速派發: {target_worker} ({cache_tag})"]')
+            last_node = "AccNode"
+
         for i, step in enumerate(result.execution_steps, 1):
             step_name = step.get("step") or step.get("action") or f"Step_{i}"
             node_id = f"Step_{i}"
             steps_lines.append(f'    {last_node} --> {node_id}["步驟 {i}: {step_name}"]')
             last_node = node_id
 
-        steps_str = "\n".join(steps_lines) if steps_lines else f'    Router --> ExecNode["執行模式: {mode_val}"]\n    last_node = "ExecNode"'
-        if not steps_lines:
+        if not result.execution_steps:
+            steps_lines.append(f'    {last_node} --> ExecNode["執行模式: {mode_val}"]')
             last_node = "ExecNode"
+
+        # 若有 Harness 品質門控，插入門控檢驗節點
+        harness_info = result.metadata.get("harness")
+        if harness_info:
+            slop_tag = "Linter 合格" if harness_info.get("is_clean") else "去 AI 腔調淨化"
+            steps_lines.append(f'    {last_node} --> HarnessGate["Harness 外骨骼: {slop_tag}"]')
+            last_node = "HarnessGate"
+
+        steps_str = "\n".join(steps_lines)
 
         mermaid_code = f"""```mermaid
 flowchart LR
@@ -58,6 +83,26 @@ flowchart LR
         model_tier = dec_dict.get("model_tier", "standard").upper()
         risk_level = dec_dict.get("risk_level", "low").upper()
 
+        # 額外擴充 RAG / Acceleration / Harness 審計行
+        extra_rows = []
+        rag_info = result.metadata.get("rag")
+        if rag_info:
+            extra_rows.append(f"| **RAG 檢索策略** | `{rag_info.get('strategy')}` (命中 {rag_info.get('chunks_count')} 切片, 耗時 {rag_info.get('latency_ms', 0):.2f}ms) |")
+
+        acc_info = result.metadata.get("acceleration")
+        if acc_info:
+            c_tag = "HIT" if acc_info.get("is_cache_hit") else "MISS"
+            extra_rows.append(f"| **推論加速排程** | 節點 `{acc_info.get('target_node_id')}` (前綴快取 `{c_tag}`, 推測草稿: `{acc_info.get('speculative_draft_tokens')}` 步) |")
+
+        harness_info = result.metadata.get("harness")
+        if harness_info:
+            h_tag = "CLEAN" if harness_info.get("is_clean") else "SANITIZED"
+            extra_rows.append(f"| **Harness 品質門控** | 狀態: `{h_tag}` (AI 腔調分: `{harness_info.get('slop_score', 0):.2f}`, 命中套話: {len(harness_info.get('violations', []))} 項) |")
+
+        extra_rows_str = "\n".join(extra_rows)
+        if extra_rows_str:
+            extra_rows_str = "\n" + extra_rows_str
+
         mermaid_chart = cls.generate_mermaid(result)
 
         card = f"""
@@ -70,7 +115,7 @@ flowchart LR
 | **匹配算力檔次** | `{model_tier}` (最適成本矩陣) |
 | **風險防護評級** | `{risk_level}` (編譯器 AST 護欄校驗) |
 | **Token 計量與成本**| 預估消耗約 `{tokens}` Tokens (結構化壓縮節省 ~85%) |
-| **決策判定依據** | {reasoning} |
+| **決策判定依據** | {reasoning} |{extra_rows_str}
 
 #### 🗺️ 執行狀態轉換圖 (Mermaid Topology)
 {mermaid_chart}

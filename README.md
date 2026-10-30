@@ -482,6 +482,7 @@ Complete end-to-end examples are available in the `examples/` directory:
 - **Adaptive RAG Showcase**: [`examples/rag_adapter_demo.py`](examples/rag_adapter_demo.py) - 5-tier context-aware retrieval strategies with confidence gating and sub-query multi-hop.
 - **LLM Acceleration Showcase**: [`examples/llm_acceleration_demo.py`](examples/llm_acceleration_demo.py) - Prefix caching affinity routing, speculative decoding gating, and prompt pruning.
 - **Agent Harness Showcase**: [`examples/agent_harness_demo.py`](examples/agent_harness_demo.py) - Code-enforced rigid state machine, AI slop linter, progressive skill disclosure, and clean-room subagents.
+- **End-to-End Live Sampler**: [`examples/live_sample_runner.py`](examples/live_sample_runner.py) - Full-pipeline battle test across RAG, Acceleration, Harness, and Agent patterns.
 - **Advanced Architecture Demo**: [`examples/advanced_features_demo.py`](examples/advanced_features_demo.py) - ELO tuning, MCP ingestion, and subprocess sandbox.
 - **OCR Pipeline**: [`examples/plug_into_ocr_example.py`](examples/plug_into_ocr_example.py) - Document extraction routing.
 - **Financial Risk Governance**: [`examples/plug_into_stock_example.py`](examples/plug_into_stock_example.py) - Trading order verification gates and debate.
