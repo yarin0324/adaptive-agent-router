@@ -75,6 +75,21 @@ from .rag import (
     CorrectiveRAGStrategy,
     AgenticMultiHopRAGStrategy,
 )
+from .acceleration import (
+    WorkloadType,
+    SpeculativeMode,
+    SpeculativeDecision,
+    CanonicalPromptResult,
+    CompressionResult,
+    WorkerNode,
+    AccelerationDecision,
+    CanonicalPromptFormatter,
+    CacheAwareAffinityRouter,
+    AdaptiveSpeculativeGator,
+    SelectivePromptPruner,
+    DisaggregatedWorkloadSplitter,
+    LLMAccelerationController,
+)
 
 __all__ = [
     "AdaptiveAgentDispatcher",
@@ -143,4 +158,17 @@ __all__ = [
     "PrecisionRerankRAGStrategy",
     "CorrectiveRAGStrategy",
     "AgenticMultiHopRAGStrategy",
+    "WorkloadType",
+    "SpeculativeMode",
+    "SpeculativeDecision",
+    "CanonicalPromptResult",
+    "CompressionResult",
+    "WorkerNode",
+    "AccelerationDecision",
+    "CanonicalPromptFormatter",
+    "CacheAwareAffinityRouter",
+    "AdaptiveSpeculativeGator",
+    "SelectivePromptPruner",
+    "DisaggregatedWorkloadSplitter",
+    "LLMAccelerationController",
 ]

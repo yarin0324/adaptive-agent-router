@@ -73,6 +73,7 @@ class AdaptiveAgentDispatcher:
         audit_log_path: Optional[str] = None,
         rate_limiter: Optional[SlidingWindowRateLimiter] = None,
         rag_adapter: Optional[Any] = None,
+        acceleration_controller: Optional[Any] = None,
         enable_logging: bool = True,
     ):
         self.elo_tuner = elo_tuner or ELORatingTuner()
@@ -83,6 +84,7 @@ class AdaptiveAgentDispatcher:
         self.audit_logger = TamperProofAuditLogger(log_file_path=audit_log_path)
         self.rate_limiter = rate_limiter or SlidingWindowRateLimiter()
         self.rag_adapter = rag_adapter
+        self.acceleration_controller = acceleration_controller
         self.enable_logging = enable_logging
 
         # 註冊預設工具 + 外部傳入的自訂工具
@@ -262,6 +264,25 @@ class AdaptiveAgentDispatcher:
                 "fallback_triggered": rag_res.fallback_triggered,
             }
 
+        # LLM 推論加速控制平面排程 (LLM Acceleration & Serving Optimization)
+        acc_meta = {}
+        if self.acceleration_controller:
+            acc_res = self.acceleration_controller.optimize_and_route(
+                system_prompt="You are a professional enterprise AI assistant.",
+                user_query=effective_prompt,
+                rag_context=effective_context.get("retrieved_chunks"),
+                mode=decision.mode.value,
+            )
+            acc_meta = {
+                "target_node_id": acc_res.target_node_id,
+                "is_cache_hit": acc_res.is_cache_hit,
+                "prefix_hash": acc_res.prefix_hash,
+                "workload_type": acc_res.workload_type.value,
+                "speculative_enabled": acc_res.speculative.enabled,
+                "speculative_draft_tokens": acc_res.speculative.draft_tokens,
+                "routing_latency_ms": acc_res.routing_latency_ms,
+            }
+
         try:
             # 獲取對應模式執行器
             executor = self.mode_registry.get(decision.mode)
@@ -282,6 +303,8 @@ class AdaptiveAgentDispatcher:
 
             if rag_meta:
                 result.metadata["rag"] = rag_meta
+            if acc_meta:
+                result.metadata["acceleration"] = acc_meta
 
             span_exec.finish("OK")
 
@@ -618,6 +641,25 @@ class AdaptiveAgentDispatcher:
                 event=StreamEventType.STEP_PROGRESS,
                 message=f"RAG 自適應檢索完成 (策略: {rag_res.mode_used.value}, 切片數: {len(rag_res.chunks)})",
                 data={"rag_mode": rag_res.mode_used.value, "chunks_count": len(rag_res.chunks), "latency_ms": rag_res.latency_ms},
+            )
+
+        # LLM 推論加速控制平面排程
+        if self.acceleration_controller:
+            acc_res = self.acceleration_controller.optimize_and_route(
+                system_prompt="You are a professional enterprise AI assistant.",
+                user_query=effective_prompt,
+                rag_context=effective_context.get("retrieved_chunks"),
+                mode=decision.mode.value,
+            )
+            yield RouterStreamChunk(
+                event=StreamEventType.STEP_PROGRESS,
+                message=f"LLM 推論加速排程完成 (節點: {acc_res.target_node_id}, 快取命中: {acc_res.is_cache_hit}, 推測步數: {acc_res.speculative.draft_tokens})",
+                data={
+                    "node_id": acc_res.target_node_id,
+                    "cache_hit": acc_res.is_cache_hit,
+                    "workload": acc_res.workload_type.value,
+                    "draft_tokens": acc_res.speculative.draft_tokens,
+                },
             )
 
         # 發送執行開始信號
