@@ -8,6 +8,7 @@ import json
 import sqlite3
 import time
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 from .suspension import SuspendedTask
@@ -75,10 +76,14 @@ class SQLiteStateStorage(BaseStateStorage):
         self.db_path = db_path
         self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _get_connection(self):
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     def _init_db(self):
         with self._get_connection() as conn:
