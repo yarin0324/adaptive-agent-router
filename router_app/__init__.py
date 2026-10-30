@@ -59,6 +59,22 @@ from .guardrails import (
     RateLimitConfig,
     SystemPromptLeakGuard,
 )
+from .rag import (
+    RAGMode,
+    RetrievedChunk,
+    RAGDecision,
+    RAGResult,
+    BaseRetriever,
+    InMemoryVectorRetriever,
+    BaseRAGStrategy,
+    AdaptiveRAGRouter,
+    AdaptiveRAGAdapter,
+    NoRAGStrategy,
+    FastHybridRAGStrategy,
+    PrecisionRerankRAGStrategy,
+    CorrectiveRAGStrategy,
+    AgenticMultiHopRAGStrategy,
+)
 
 __all__ = [
     "AdaptiveAgentDispatcher",
@@ -113,4 +129,18 @@ __all__ = [
     "SlidingWindowRateLimiter",
     "RateLimitConfig",
     "SystemPromptLeakGuard",
+    "RAGMode",
+    "RetrievedChunk",
+    "RAGDecision",
+    "RAGResult",
+    "BaseRetriever",
+    "InMemoryVectorRetriever",
+    "BaseRAGStrategy",
+    "AdaptiveRAGRouter",
+    "AdaptiveRAGAdapter",
+    "NoRAGStrategy",
+    "FastHybridRAGStrategy",
+    "PrecisionRerankRAGStrategy",
+    "CorrectiveRAGStrategy",
+    "AgenticMultiHopRAGStrategy",
 ]

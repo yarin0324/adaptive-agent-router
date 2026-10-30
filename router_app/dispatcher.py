@@ -72,6 +72,7 @@ class AdaptiveAgentDispatcher:
         elo_tuner: Optional[ELORatingTuner] = None,
         audit_log_path: Optional[str] = None,
         rate_limiter: Optional[SlidingWindowRateLimiter] = None,
+        rag_adapter: Optional[Any] = None,
         enable_logging: bool = True,
     ):
         self.elo_tuner = elo_tuner or ELORatingTuner()
@@ -81,6 +82,7 @@ class AdaptiveAgentDispatcher:
         self.suspension_manager = TaskSuspensionManager()
         self.audit_logger = TamperProofAuditLogger(log_file_path=audit_log_path)
         self.rate_limiter = rate_limiter or SlidingWindowRateLimiter()
+        self.rag_adapter = rag_adapter
         self.enable_logging = enable_logging
 
         # 註冊預設工具 + 外部傳入的自訂工具
@@ -243,6 +245,23 @@ class AdaptiveAgentDispatcher:
             t for t in self.tools if ToolRBACGuard.verify_tool_access(t, user_roles)[0]
         ]
 
+        # 自適應 RAG 前置檢索與情境注入 (Adaptive RAG Ingestion)
+        effective_prompt = prompt
+        effective_context = dict(context or {})
+        rag_meta = {}
+        if self.rag_adapter:
+            rag_res = self.rag_adapter.dispatch(prompt, context=effective_context)
+            effective_context["rag_result"] = rag_res.model_dump()
+            effective_context["retrieved_chunks"] = [c.model_dump() for c in rag_res.chunks]
+            effective_prompt = self.rag_adapter.format_prompt_with_context(prompt, rag_res)
+            rag_meta = {
+                "strategy": rag_res.mode_used.value,
+                "chunks_count": len(rag_res.chunks),
+                "confidence": rag_res.confidence_score,
+                "latency_ms": rag_res.latency_ms,
+                "fallback_triggered": rag_res.fallback_triggered,
+            }
+
         try:
             # 獲取對應模式執行器
             executor = self.mode_registry.get(decision.mode)
@@ -250,7 +269,7 @@ class AdaptiveAgentDispatcher:
                 executor = self.mode_registry[AgentMode.SINGLE_TURN]
 
             # 執行任務
-            result = executor.run(prompt=prompt, tools=authorized_tools, context=context)
+            result = executor.run(prompt=effective_prompt, tools=authorized_tools, context=effective_context)
             breaker.record_step(tokens=result.total_tokens_used or 0)
             
             # 後置個資脫敏過濾 (借鏡 Guardrails AI: Output PII Sanitizer)
@@ -260,6 +279,9 @@ class AdaptiveAgentDispatcher:
             result.output, has_leak, leak_details = SystemPromptLeakGuard.inspect_and_sanitize(result.output)
             if has_leak:
                 result.metadata["system_prompt_leak_neutralized"] = leak_details
+
+            if rag_meta:
+                result.metadata["rag"] = rag_meta
 
             span_exec.finish("OK")
 
@@ -584,6 +606,20 @@ class AdaptiveAgentDispatcher:
         # 6. 執行模式
         executor = self.mode_registry.get(decision.mode, self.mode_registry[AgentMode.SINGLE_TURN])
         
+        # 自適應 RAG 前置檢索與情境注入
+        effective_prompt = prompt
+        effective_context = dict(context or {})
+        if self.rag_adapter:
+            rag_res = self.rag_adapter.dispatch(prompt, context=effective_context)
+            effective_context["rag_result"] = rag_res.model_dump()
+            effective_context["retrieved_chunks"] = [c.model_dump() for c in rag_res.chunks]
+            effective_prompt = self.rag_adapter.format_prompt_with_context(prompt, rag_res)
+            yield RouterStreamChunk(
+                event=StreamEventType.STEP_PROGRESS,
+                message=f"RAG 自適應檢索完成 (策略: {rag_res.mode_used.value}, 切片數: {len(rag_res.chunks)})",
+                data={"rag_mode": rag_res.mode_used.value, "chunks_count": len(rag_res.chunks), "latency_ms": rag_res.latency_ms},
+            )
+
         # 發送執行開始信號
         yield RouterStreamChunk(
             event=StreamEventType.STEP_PROGRESS,
@@ -593,7 +629,7 @@ class AdaptiveAgentDispatcher:
 
         # 非同步執行運算 (避免卡死 Event Loop)
         try:
-            result = await asyncio.to_thread(executor.run, prompt=prompt, tools=authorized_tools, context=context)
+            result = await asyncio.to_thread(executor.run, prompt=effective_prompt, tools=authorized_tools, context=effective_context)
         except CircuitBreakerException as cbe:
             yield RouterStreamChunk(
                 event=StreamEventType.TASK_FAILED,
