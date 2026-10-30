@@ -424,7 +424,7 @@ fsm = RigidStateFSM(task_id="audit_deploy_01")
 try:
     fsm.transition_to(HarnessStage.RESEARCH)
 except RigidGateException as e:
-    print(e)  # [代碼硬門控阻斷] 任務目標描述為空或長度不足 5 字元
+    print(e)  # [Rigid Gate Blocked] Task objective empty or under 5 characters
 
 # Satisfy code assertions programmatically:
 fsm.update_payload(task_description="Refactor database connection pool")

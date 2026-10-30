@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "adaptive-agent-router"
-version = "0.2.0"
-description = "Enterprise-grade Adaptive Router & Microkernel Framework for LLM AI Agents"
+version = "0.3.0"
+description = "Enterprise-grade Upstream Control Plane & Execution Governance Harness for LLMs & AI Agents"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -20,7 +20,12 @@ keywords = [
     "guardrails",
     "circuit-breaker",
     "ast-security",
-    "context-compression"
+    "context-compression",
+    "kv-cache",
+    "speculative-decoding",
+    "adaptive-rag",
+    "agent-harness",
+    "chaos-engineering"
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
