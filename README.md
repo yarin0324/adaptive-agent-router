@@ -74,19 +74,19 @@ The system decouples core dispatch logic from execution engines using a microker
 flowchart TD
     Client["Client / Application Tier<br>REST API / Gateway / Workflow"] --> Ingress
 
-    subgraph Ingress ["Microkernel Ingress Control"]
+    subgraph Ingress ["Microkernel Ingress & Acceleration Control"]
         direction TB
         RL["Rate Limiter (OWASP LLM10)<br>Sliding Window RPM & Token Bomb Guard"]
         Sanitizer["Prompt Sanitizer (OWASP LLM01)<br>Zero-Width & Hidden HTML Neutralization"]
         Cache["Route Cache<br>SHA-256 Exact (0ms) / N-gram Prototype (5ms)"]
-        Router["Adaptive Router<br>Pattern Classifier x Model Tier Selector"]
-        AST["Compiler AST Guard<br>Python & SQL Syntax Tree Isolation"]
-        FSM["Task Suspension FSM<br>Crash-Proof HITL State Machine"]
+        AccCtrl["Inference Acceleration Control Plane<br>Canonical Layout & Cache-Aware Affinity Router"]
+        Router["Adaptive Pattern Router<br>Classifier x 2D Model Tier Selector"]
     end
 
-    Ingress --> LowTier & HighTier
+    Ingress --> RAGLayer["Adaptive RAG Adapter<br>5-Tier Context-Aware Retrieval (No-RAG, Hybrid, CRAG, Multi-Hop)"]
+    RAGLayer --> LowTier & HighTier
 
-    subgraph LowTier ["Low-Latency Tier"]
+    subgraph LowTier ["Low-Latency Pattern Tier"]
         M1["Mode 1: Single-Turn Augmented"]
         M2["Mode 2: ReAct with Negative Memory"]
         M8["Mode 8: Tool Agent with AST Guard"]
@@ -101,15 +101,17 @@ flowchart TD
         M9["Mode 9: Self-Consistency Ensemble"]
     end
 
-    LowTier & HighTier --> PostProcess
+    LowTier & HighTier --> HarnessLayer
 
-    subgraph PostProcess ["Output & Governance"]
-        Compress["Context Compressor (-90% Tokens)"]
-        PII["Output PII Sanitizer & Prompt Leak Guard"]
-        Audit["Tamper-Proof Hash-Chained Audit Logger"]
+    subgraph HarnessLayer ["The Agent Harness & Output Governance"]
+        direction TB
+        FSM["Rigid State FSM<br>Code-Enforced Gate Assertions"]
+        AST["Compiler AST Guard<br>Python & SQL Syntax Tree Isolation"]
+        Linter["AI Slop & Tone Linter<br>Zero-Tolerance AI Cliché Filter"]
+        Audit["Tamper-Proof Audit Logger<br>Cryptographic SHA-256 Hash-Chain"]
     end
 
-    PostProcess --> Out["ExecutionResult / SSE Stream"]
+    HarnessLayer --> Out["ExecutionResult / SSE Stream"]
 ```
 
 ---
