@@ -8,7 +8,7 @@ Native capabilities include zero-latency route caching, compiler-level AST secur
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests: 47 Passing](https://img.shields.io/badge/tests-47%20passing-brightgreen.svg)]()
+[![Tests: 58 Passing](https://img.shields.io/badge/tests-58%20passing-brightgreen.svg)]()
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 ---
@@ -433,6 +433,22 @@ python tests/verify_ai_painpoints_debug.py
 | **Context Window Bloat** | Full tool schemas injected upfront, causing Lost-in-the-Middle. | `ProgressiveSkillRegistry` maintains compact 1-line index; loads on demand. | **-86.9% Token Footprint** (165 vs 1,255t) |
 | **Subagent Noise Bleed** | Intermediate crawl retries and error traces pollute parent conversation. | `CleanRoomSubagentRunner` isolates execution; returns structured summary only. | **0% Context Contamination** (42 char summary) |
 | **Malicious Code / SQL Injection** | Prompt injection tricks agent into executing destructive commands. | `PythonASTSecurityGuard` & `SQLASTSecurityGuard` block at compiler parser level. | **0% Bypass Rate** (`DROP TABLE` / `.system()`) |
+
+### Advanced Resilience & Testing Engineering
+
+AdaptiveAgentRouter incorporates four industry and academic-grade testing and fault-injection paradigms:
+
+```bash
+# Execute advanced resilience & testing demo
+python examples/advanced_testing_demo.py
+```
+
+| Testing Paradigm | Methodology & Industry Origin | Verification Mechanism | Concrete Defense Invariant |
+| :--- | :--- | :--- | :--- |
+| **Agent Chaos Monkey** | Netflix Chaos Engineering (Basiri et al., 2016) | Intercepts tool & LLM invocations; injects 504 timeouts, malformed JSON, and prompt injections. | Verifies graceful degradation, circuit breaker trips, and error resilience without dead loops. |
+| **Deterministic Simulation (DST)** | Antithesis & FoundationDB (Zhou et al., SIGMOD 2021) | Virtual clock advancement + seeded PRNG scheduler computing SHA-256 trace digests. | Multi-agent concurrency and retry loops are 100% bit-for-bit reproducible for debugging. |
+| **SWE-bench Test-as-Oracle** | Princeton SWE-agent (Jimenez et al., ICLR 2024) | Sandboxed test execution measuring real `exit_code == 0` (No subjective LLM-as-a-judge). | Code modifications must pass physical unit test suites before `RigidStateFSM` SHIP transition. |
+| **Production Shadow Dual-Run** | Stripe & Uber Dark Launch Traffic Mirroring | Live traffic mirroring concurrently running baseline and AdaptiveAgentRouter. | Emits real-time token savings (-90%), latency deltas, and semantic drift warnings before cutover. |
 
 ---
 

@@ -104,6 +104,20 @@ from .harness import (
     CleanRoomSubagentRunner,
     AgentHarness,
 )
+from .resilience import (
+    ChaosFaultType,
+    ChaosInjectionConfig,
+    ChaosEventRecord,
+    ChaosInjectionException,
+    AgentChaosMonkey,
+    SimulationEvent,
+    VirtualClock,
+    DeterministicSimulationRunner,
+    OracleExecutionResult,
+    TestAsOracle,
+    ShadowComparisonReport,
+    ShadowDualRunner,
+)
 
 __all__ = [
     "AdaptiveAgentDispatcher",
@@ -197,4 +211,17 @@ __all__ = [
     "ProgressiveSkillRegistry",
     "CleanRoomSubagentRunner",
     "AgentHarness",
+    # Resilience & Advanced Testing
+    "ChaosFaultType",
+    "ChaosInjectionConfig",
+    "ChaosEventRecord",
+    "ChaosInjectionException",
+    "AgentChaosMonkey",
+    "SimulationEvent",
+    "VirtualClock",
+    "DeterministicSimulationRunner",
+    "OracleExecutionResult",
+    "TestAsOracle",
+    "ShadowComparisonReport",
+    "ShadowDualRunner",
 ]
