@@ -209,20 +209,29 @@ flowchart TD
         
         subgraph Harness_Gates ["The Agent Harness"]
             direction TB
-            RigidFSM["Rigid State FSM<br>(IDEA -> RESEARCH -> DRAFT -> AUDIT -> SHIP)"]
-            SlopLint["AI Slop & Tone Linter<br>(Zero-Tolerance Cliché Filter)"]
-            CleanRoom["Clean-Room Subagents & Progressive Skills"]
+            RigidFSM["RigidStateFSM (Code Gates)"] --> SlopLint["AISlopLinter (&lt; 0.2ms Scrub)"]
+            SlopLint --> ProgSkills["Progressive Skills (-90% Tokens)"]
+            ProgSkills --> CleanRoom["Clean-Room Subagents (0% Noise)"]
         end
 
-        subgraph Security_Gov ["Compiler & Audit Guardrails"]
+        subgraph Security_Rails ["Compiler AST & Resilience Rails"]
             direction TB
-            AST_Guard["Compiler AST Guards<br>(Python ast.parse & SQL Syntax Tree)"]
-            PII_Guard["PII Redaction & System Prompt Leak Guard"]
-            AuditChain["Tamper-Proof Audit Logger<br>(SHA-256 Cryptographic Hash-Chain)"]
+            ASTGuards["Python & SQL AST Guards"] --> Breakers["Circuit Breakers (&lt; 0.01ms Cutoff)"]
+            Breakers --> AuditLogs["SHA-256 Audit Hash-Chain"]
         end
     end
 
-    HarnessLayer --> Out(["ExecutionResult / SSE Stream Output"])
+    HarnessLayer --> DownstreamEgress
+
+    %% 5. Downstream Inference Cluster
+    subgraph DownstreamEgress ["Layer 5: Downstream Infrastructure & GPU Cluster (Egress)"]
+        direction LR
+        GPU_0["vLLM / SGLang Worker 0<br>(KV Cache Hit 93%)"]
+        GPU_1["vLLM / SGLang Worker 1<br>(KV Cache Hit 93%)"]
+        Cloud_API["Commercial APIs<br>(OpenAI / Claude / DeepSeek)"]
+    end
+
+    DownstreamEgress --> Out(["ExecutionResult / SSE Stream Output"])
 
     %% Styles for clean modern visual hierarchy
     classDef default fill:#1f242d,stroke:#3b4252,stroke-width:1px,color:#e5e9f0;

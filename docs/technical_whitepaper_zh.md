@@ -22,62 +22,104 @@ AdaptiveAgentRouter 部署於企業應用端（Web、App、OCR 辨識、ERP/CRM 
 
 ```mermaid
 flowchart TD
-    subgraph ClientLayer["1. 用戶與業務系統層 (Ingress)"]
-        ClientApp["企業客戶端 (Web / App / OCR / ERP / 投研系統)"]
+    %% Global Entry
+    ClientApp(["企業客戶端 (Web / App / OCR / ERP / 投研系統)"]) --> Ingress
+
+    %% 1. Ingress Tier
+    subgraph Ingress ["第 1 層：調度閘道與雙向快取 (Ingress & Caching)"]
+        direction LR
+        APIGateway["OpenAI 相容 API 伺服器<br>(HTTP / SSE 串流 / Prometheus)"] --> RateLimiter["滑動視窗限流與防護<br>(OWASP LLM10)"]
+        RateLimiter --> RouteCache{"RouteCache<br>SHA-256 雙向雜湊"}
     end
 
-    subgraph ControlPlane["AdaptiveAgentRouter 智慧控制平面與外骨骼"]
+    RouteCache -- "命中 (0.002ms)" --> InstantOut(["極速快取直接回傳 (0ms LLM 延遲)"])
+    RouteCache -- "未命中" --> ControlPlane
+
+    %% 2. Control Plane: Routing, RAG & Acceleration
+    subgraph ControlPlane ["第 2 層：智慧控制平面 (Routing, RAG & Acceleration)"]
         direction TB
-        APIGateway["OpenAI 相容 API 伺服器 (SSE 串流 / Prometheus 指標)"]
         
-        subgraph Engine1["核心 1: 雙向動態路由與算力矩陣"]
-            RouteCache["RouteCache 雙向雜湊 (0.002ms)"]
-            IntentClassifier["語意特徵分類器 + 原型匹配 (5ms)"]
-            ModelMatrix["2D 算力矩陣 (FAST / STANDARD / REASONING)"]
-        end
+        subgraph Sub_Engines ["三大控制引擎 (Control Plane Engines)"]
+            direction LR
+            subgraph Box_Router ["動態模式與算力路由器"]
+                direction TB
+                Classifier["意圖特徵分類器"] --> TierMatrix["2D 算力矩陣<br>(FAST / STANDARD / REASONING)"]
+            end
 
-        subgraph Engine2["核心 2: LLM 推論加速控制平面"]
-            CanonicalLayout["Canonical Prompt 佈局 (靜態前綴分離)"]
-            AffinityRing["一致性雜湊親和性環 (Sticky GPU Workers)"]
-            SpeculativeGator["自適應推測解碼門控 (K=0, 3, 5)"]
-            PromptPruner["選擇性提示詞去噪壓縮 (-40.9% Tokens)"]
-        end
+            subgraph Box_RAG ["5 階情境自適應 RAG"]
+                direction TB
+                ComplexityGate{"檢索複雜度評估<br>(0.002ms)"} --> RAGModes["5 種檢索模式<br>NO_RAG | 混合 | 精準 | CRAG | 多跳"]
+            end
 
-        subgraph Engine3["核心 3: 5 階自適應 RAG 適配器"]
-            ComplexityRouter["檢索複雜度路由器 (0.002ms)"]
-            RAGModes["NO_RAG / FAST_HYBRID / PRECISION / CRAG / MULTI-HOP"]
-            RRF["BM25 + Dense 向量 RRF 倒數排名融合"]
+            subgraph Box_Acc ["LLM 推論加速控制"]
+                direction TB
+                AffinityRing["前綴標準化與親和性雜湊環<br>(Sticky GPU Workers)"] --> SpecGate["自適應推測解碼門控<br>(草稿步數 K=0, 3, 5)"]
+            end
         end
-
-        subgraph Engine4["核心 4: 外骨骼治理層 (The Agent Harness)"]
-            RigidFSM["RigidStateFSM 代碼硬門控狀態機"]
-            SlopLinter["AISlopLinter 去 AI 腔調檢查器 (< 0.2ms)"]
-            SkillRegistry["ProgressiveSkillRegistry 漸進式技能揭露"]
-            CleanRoom["CleanRoomSubagentRunner 無菌室沙盒"]
-        end
-
-        subgraph SafetyPlane["資安護欄與彈性工程"]
-            ASTGuards["Python AST & SQL AST 唯讀編譯器護欄"]
-            Breaker["TaskCircuitBreaker 步數與預算熔斷器"]
-            AuditChain["SHA-256 密碼學防竄改審計日誌"]
-            ResilienceSuite["Chaos Monkey / DST 虛擬時鐘 / Test-as-Oracle"]
-        end
-
-        APIGateway --> Engine1
-        Engine1 --> Engine2
-        Engine2 --> Engine3
-        Engine3 --> Engine4
-        Engine4 --> SafetyPlane
     end
 
-    subgraph InferenceCluster["2. 下游基礎設施與算力叢集 (Egress)"]
-        GPU1["vLLM / SGLang Worker 0 (Sticky Prefix Cache)"]
-        GPU2["vLLM / SGLang Worker 1 (Sticky Prefix Cache)"]
-        CloudAPI["雲端商業 API (OpenAI / Claude / DeepSeek)"]
+    ControlPlane --> ExecutionTier
+
+    %% 3. Execution Tier
+    subgraph ExecutionTier ["第 3 層：10 大標準 Agent 模式執行層"]
+        direction LR
+        
+        subgraph Tier_Fast ["FAST 算力檔次"]
+            direction TB
+            M1["M1: 單輪結構直出"]
+            M8["M8: 工具調用代理 (AST)"]
+            M10["M10: 脈絡記憶 (RRF)"]
+        end
+
+        subgraph Tier_Standard ["STANDARD 算力檔次"]
+            direction TB
+            M2["M2: ReAct (負反饋記憶)"]
+            M3["M3: 規劃與循序執行"]
+            M6["M6: 審查門控 (HITL)"]
+            M9["M9: 代理人集成投票"]
+        end
+
+        subgraph Tier_Reasoning ["REASONING 算力檔次"]
+            direction TB
+            M4["M4: 動態重構規劃器"]
+            M5["M5: 自我反思 (Rubric >= 8.5)"]
+            M7["M7: 多智能體對抗辯論"]
+        end
     end
 
-    ClientApp --> APIGateway
-    SafetyPlane --> InferenceCluster
+    %% Human in the loop branch
+    M6 -. "高危指令" .-> SuspendFSM["SQLite 任務掛起狀態機<br>(人機審批)"]
+    SuspendFSM -. "管理員審批喚醒" .-> HarnessLayer
+
+    ExecutionTier --> HarnessLayer
+
+    %% 4. Harness & Governance Tier
+    subgraph HarnessLayer ["第 4 層：外骨骼治理與編譯器資安防護"]
+        direction LR
+        
+        subgraph Harness_Gates ["外骨骼治理層 (The Agent Harness)"]
+            direction TB
+            RigidFSM["RigidStateFSM 代碼硬門控<br>(躍遷佐證 & 簽核校驗)"] --> SlopLinter["AISlopLinter 去 AI 腔調檢查器<br>(< 0.2ms 掃描與自動洗淨)"]
+            SlopLinter --> ProgressiveSkill["ProgressiveSkillRegistry<br>(漸進式技能揭露 -90% Tokens)"]
+            ProgressiveSkill --> CleanRoom["CleanRoomSubagentRunner<br>(無菌室沙盒 0% 上下文污染)"]
+        end
+
+        subgraph Security_Rails ["編譯器資安護欄與微服務熔斷"]
+            direction TB
+            ASTGuards["Python & SQL AST 編譯器護欄<br>(0% 注入繞過率)"] --> Breaker["TaskCircuitBreaker 熔斷器<br>(步數與 Token 硬截斷)"]
+            Breaker --> AuditLog["SHA-256 密碼學防竄改審計日誌<br>(SOC 2 / ISO 27001)"]
+        end
+    end
+
+    HarnessLayer --> DownstreamEgress
+
+    %% 5. Downstream Inference Cluster
+    subgraph DownstreamEgress ["第 5 層：下游基礎設施與 GPU 算力叢集 (Egress)"]
+        direction LR
+        GPU_0["vLLM / SGLang Worker 0<br>(KV Cache 命中 93%)"]
+        GPU_1["vLLM / SGLang Worker 1<br>(KV Cache 命中 93%)"]
+        Cloud_API["雲端商業 API<br>(OpenAI / Claude / DeepSeek)"]
+    end
 ```
 
 ---
