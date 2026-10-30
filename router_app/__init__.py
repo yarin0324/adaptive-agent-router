@@ -90,6 +90,20 @@ from .acceleration import (
     DisaggregatedWorkloadSplitter,
     LLMAccelerationController,
 )
+from .harness import (
+    HarnessStage,
+    RigidGateException,
+    AISlopViolationException,
+    AISlopAnalysis,
+    SkillDescriptor,
+    StateTransitionRecord,
+    CleanRoomResult,
+    AISlopLinter,
+    RigidStateFSM,
+    ProgressiveSkillRegistry,
+    CleanRoomSubagentRunner,
+    AgentHarness,
+)
 
 __all__ = [
     "AdaptiveAgentDispatcher",
@@ -171,4 +185,16 @@ __all__ = [
     "SelectivePromptPruner",
     "DisaggregatedWorkloadSplitter",
     "LLMAccelerationController",
+    "HarnessStage",
+    "RigidGateException",
+    "AISlopViolationException",
+    "AISlopAnalysis",
+    "SkillDescriptor",
+    "StateTransitionRecord",
+    "CleanRoomResult",
+    "AISlopLinter",
+    "RigidStateFSM",
+    "ProgressiveSkillRegistry",
+    "CleanRoomSubagentRunner",
+    "AgentHarness",
 ]

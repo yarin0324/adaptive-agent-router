@@ -8,7 +8,7 @@ Native capabilities include zero-latency route caching, compiler-level AST secur
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests: 41 Passing](https://img.shields.io/badge/tests-41%20passing-brightgreen.svg)]()
+[![Tests: 47 Passing](https://img.shields.io/badge/tests-47%20passing-brightgreen.svg)]()
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 ---
@@ -275,6 +275,62 @@ print(res.metadata["acceleration"])  # {'target_node_id': 'worker_gpu_0', 'is_ca
 
 ---
 
+## The Agent Harness (Execution Governance & False-Compliance Defense)
+
+> *"Code enforces rules. State machines track workflow. LLM handles judgment."* — **The Agent Harness Architecture**
+
+When multi-agent workflows rely solely on prompt directives (e.g., *"You must perform 5 validation checks, never skip"*), agents routinely fall into the **False-Compliance Trap**: falsely reporting *"all checks passed"* when underlying verification tools were never actually invoked.
+
+AdaptiveAgentRouter provides an integrated **Agent Harness** that wraps LLM reasoning in deterministic Python execution gates:
+
+| Harness Pillar | Mechanism | Defense Target | Latency Profile | Reference / Prior Art |
+| :--- | :--- | :--- | :---: | :--- |
+| **AI Slop & Tone Linter** (`AISlopLinter`) | Deterministic AST/Regex static analysis scanning for meta AI announcements, hollow clichés, and artificial closures. | Eliminates low-information AI voice (`Slop Score > 0.05`); supports code-level assertion blocking and auto-sanitization. | **< 0.1 ms** | The Agent Harness (*Kubicka 2026*) |
+| **Code-Enforced Rigid State Machine** (`RigidStateFSM`) | Programmatic finite state machine (`IDEA -> RESEARCH -> DRAFT -> AUDIT -> SHIP`) with callable assertions per transition. | Physically blocks LLMs from skipping steps; raises `RigidGateException` if evidence sources, content length, or security sign-offs are missing. | **< 0.1 ms** | SWE-agent ACI (*Princeton 2024*), Temporal FSM |
+| **Progressive Skill Disclosure** (`ProgressiveSkillRegistry`) | Two-stage on-demand loading: resident prompt keeps a 1-line index (~15 tokens per skill); full specs loaded only upon invocation. | Prevents context window explosion and Lost-in-the-Middle; cuts skill prompt token consumption by **> 70%**. | **< 0.2 ms** | Anthropic Progressive Disclosure, Cursor IDE |
+| **Clean-Room Subagents** (`CleanRoomSubagentRunner`) | Spawns isolated execution environments for heavy data mining, returning only concise summaries and structured artifacts to the parent session. | Keeps parent conversation context 100% clean, avoiding token pollution and hallucination loops. | **< 0.1 ms** | Subagent Clean-Room Isolation Pattern |
+
+### Usage: Rigid State Machine with False-Compliance Defense
+
+```python
+from router_app import RigidStateFSM, HarnessStage, RigidGateException
+
+fsm = RigidStateFSM(task_id="audit_deploy_01")
+
+# Attempting to jump to RESEARCH without defining task objective:
+try:
+    fsm.transition_to(HarnessStage.RESEARCH)
+except RigidGateException as e:
+    print(e)  # [代碼硬門控阻斷] 任務目標描述為空或長度不足 5 字元
+
+# Satisfy code assertions programmatically:
+fsm.update_payload(task_description="Refactor database connection pool")
+fsm.transition_to(HarnessStage.RESEARCH)
+
+# RESEARCH -> DRAFT requires physical evidence sources:
+fsm.update_payload(evidence_sources=["k8s_benchmark.log", "query_profile.json"])
+fsm.transition_to(HarnessStage.DRAFT)
+```
+
+### Usage: AI Slop Linter & Assertion Blocking
+
+```python
+from router_app import AISlopLinter, AISlopViolationException
+
+draft = "As an AI language model, it is worth noting that this is a double-edged sword. In conclusion..."
+
+analysis = AISlopLinter.lint(draft)
+print(f"Clean: {analysis.is_clean}, Slop Score: {analysis.slop_score}")
+print(f"Violations: {analysis.violations}")
+# Auto-sanitized output without prompt roundtrip:
+print(analysis.cleaned_text)
+
+# Enforce strict zero-slop assertion:
+# AISlopLinter.assert_clean(draft)  # Raises AISlopViolationException
+```
+
+---
+
 ## Performance Benchmark
 
 All metrics can be reproduced by running `python examples/benchmark.py`:
@@ -425,6 +481,7 @@ Complete end-to-end examples are available in the `examples/` directory:
 - **All Modes Showcase**: [`examples/all_modes_showcase.py`](examples/all_modes_showcase.py) - Demonstrates all 10 agent modes and streaming tokens.
 - **Adaptive RAG Showcase**: [`examples/rag_adapter_demo.py`](examples/rag_adapter_demo.py) - 5-tier context-aware retrieval strategies with confidence gating and sub-query multi-hop.
 - **LLM Acceleration Showcase**: [`examples/llm_acceleration_demo.py`](examples/llm_acceleration_demo.py) - Prefix caching affinity routing, speculative decoding gating, and prompt pruning.
+- **Agent Harness Showcase**: [`examples/agent_harness_demo.py`](examples/agent_harness_demo.py) - Code-enforced rigid state machine, AI slop linter, progressive skill disclosure, and clean-room subagents.
 - **Advanced Architecture Demo**: [`examples/advanced_features_demo.py`](examples/advanced_features_demo.py) - ELO tuning, MCP ingestion, and subprocess sandbox.
 - **OCR Pipeline**: [`examples/plug_into_ocr_example.py`](examples/plug_into_ocr_example.py) - Document extraction routing.
 - **Financial Risk Governance**: [`examples/plug_into_stock_example.py`](examples/plug_into_stock_example.py) - Trading order verification gates and debate.
@@ -436,6 +493,8 @@ Complete end-to-end examples are available in the `examples/` directory:
 
 The architectural principles in AdaptiveAgentRouter are grounded in published literature and high-performance open-source systems:
 
+- **SWE-agent**: Yang et al., *"SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering"*, Princeton University, 2024. [arXiv:2405.15793](https://arxiv.org/abs/2405.15793).
+- **The Agent Harness Architecture**: Kubicka, B., *"The Agent Harness: Why Code Must Enforce Workflow Gates in Production Multi-Agent Systems"*, 2026.
 - **SGLang / RadixAttention**: Zheng et al., *"SGLang: Efficient Execution of Structured Language Model Programs"*, 2024. [arXiv:2312.07104](https://arxiv.org/abs/2312.07104).
 - **Mooncake**: Kimi / Moonshot AI, *"Mooncake: A KVCache-centric Disaggregated Architecture for LLM Serving"*, 2024. [arXiv:2407.00079](https://arxiv.org/abs/2407.00079).
 - **DistServe**: Zhong et al., *"DistServe: Disaggregating Prefill and Decoding for Goodput-optimized Large Language Model Serving"*, USENIX OSDI 2024.

@@ -74,6 +74,7 @@ class AdaptiveAgentDispatcher:
         rate_limiter: Optional[SlidingWindowRateLimiter] = None,
         rag_adapter: Optional[Any] = None,
         acceleration_controller: Optional[Any] = None,
+        harness: Optional[Any] = None,
         enable_logging: bool = True,
     ):
         self.elo_tuner = elo_tuner or ELORatingTuner()
@@ -85,6 +86,7 @@ class AdaptiveAgentDispatcher:
         self.rate_limiter = rate_limiter or SlidingWindowRateLimiter()
         self.rag_adapter = rag_adapter
         self.acceleration_controller = acceleration_controller
+        self.harness = harness
         self.enable_logging = enable_logging
 
         # 註冊預設工具 + 外部傳入的自訂工具
@@ -300,6 +302,17 @@ class AdaptiveAgentDispatcher:
             result.output, has_leak, leak_details = SystemPromptLeakGuard.inspect_and_sanitize(result.output)
             if has_leak:
                 result.metadata["system_prompt_leak_neutralized"] = leak_details
+
+            # Agent Harness 去 AI 味與品質門控審查 (The Agent Harness Quality Gate)
+            if self.harness:
+                slop_res = self.harness.lint_text(result.output)
+                result.output = slop_res.cleaned_text
+                result.metadata["harness"] = {
+                    "is_clean": slop_res.is_clean,
+                    "slop_score": slop_res.slop_score,
+                    "violations": slop_res.violations,
+                    "latency_ms": slop_res.latency_ms,
+                }
 
             if rag_meta:
                 result.metadata["rag"] = rag_meta
