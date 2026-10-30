@@ -72,90 +72,108 @@ The system decouples core dispatch logic from execution engines using a microker
 
 ```mermaid
 flowchart TD
-    subgraph Layer0 ["1. Client & Ingress Gateway (OWASP Top 10 Defenses)"]
-        Client["Client Tier: REST API / Gateway / OpenAI SDK / Open WebUI"] --> IngressGateway["Adaptive Gateway Server (HTTP & SSE)"]
-        IngressGateway --> RateLimit["Sliding-Window Rate Limiter<br>(OWASP LLM10: DoW & Token Bomb Protection)"]
-        RateLimit --> Sanitizer["Indirect Injection Sanitizer<br>(OWASP LLM01: Zero-Width & Hidden HTML Neutralization)"]
-        Sanitizer --> RouteCache{"Route Cache<br>SHA-256 Exact (0ms) / N-Gram Semantic (5ms)"}
+    %% Global Entry
+    Client(["Client Applications / REST API / OpenAI SDK"]) --> Ingress
+
+    %% 1. Ingress Tier
+    subgraph Ingress ["Layer 1: Ingress Security & Route Caching"]
+        direction LR
+        GW["Gateway Server<br>(HTTP / SSE)"] --> RL["Rate Limiter<br>(OWASP LLM10)"]
+        RL --> San["Prompt Sanitizer<br>(OWASP LLM01)"]
+        San --> Cache{"Route Cache<br>SHA-256 / N-gram"}
     end
 
-    RouteCache -- "Exact Cache Hit (0ms)" --> FastReturn["Instant Cached Response"]
-    RouteCache -- "Cache Miss" --> Layer1
+    Cache -- "Hit (0.002ms)" --> InstantOut(["Instant Cached Response"])
+    Cache -- "Miss" --> ControlPlane
 
-    subgraph Layer1 ["2. Dual-Engine Control Plane: Routing & Acceleration"]
+    %% 2. Control Plane: Routing, RAG & Acceleration
+    subgraph ControlPlane ["Layer 2: Adaptive Control Plane (Routing, RAG & Acceleration)"]
         direction TB
-        subgraph Sub_Router ["Adaptive Pattern Router"]
-            Classifier["Multi-Dimensional Intent Classifier"]
-            Matrix["2D Model Tier Matrix<br>(FAST / STANDARD / REASONING)"]
-            Classifier --> Matrix
-        end
+        
+        subgraph Sub_Engines ["Control Plane Engines"]
+            direction LR
+            subgraph Box_Router ["Adaptive Pattern Router"]
+                direction TB
+                Classifier["Intent Classifier"] --> TierMatrix["2D Model Tier Matrix<br>(FAST / STANDARD / REASONING)"]
+            end
 
-        subgraph Sub_Acc ["LLM Inference Acceleration Control Plane"]
-            Layout["Canonical Prompt Formatter<br>(Static Prefix vs Dynamic Suffix Separation)"]
-            Pruner["Selective Prompt Pruner<br>(Information Density Filtering -30% to -50% Tokens)"]
-            Affinity["Cache-Aware Affinity Router<br>(Consistent Hash Ring to Sticky GPU Workers)"]
-            SpecGator["Adaptive Speculative Gator<br>(Dynamic Draft Tokens: K=0, K=3, or K=5)"]
-            Layout --> Pruner --> Affinity --> SpecGator
-        end
-    end
+            subgraph Box_RAG ["Adaptive RAG Adapter"]
+                direction TB
+                RAG_Gate{"Query Complexity"} --> RAG_Strats["5 Retrieval Modes<br>No-RAG | Hybrid | Precision | CRAG | Multi-Hop"]
+            end
 
-    Layer1 --> Layer2
-
-    subgraph Layer2 ["3. Adaptive RAG Adapter (5-Tier Context-Aware Retrieval)"]
-        direction TB
-        RAGRouter{"RAG Complexity &<br>Intent Classifier"}
-        RAGRouter -->|"Greetings / General Code"| S_NoRAG["No-RAG Strategy<br>(0ms Direct Parametric Generation)"]
-        RAGRouter -->|"Factual / Entity Lookup"| S_Hybrid["Fast Hybrid RAG<br>(BM25S Lexical + Dense Cosine RRF Fusion)"]
-        RAGRouter -->|"Legal / SLA Compliance"| S_Precision["Precision Rerank RAG<br>(Two-Stage Cross-Encoder Strict Threshold)"]
-        RAGRouter -->|"Vague / Low-Confidence"| S_CRAG["Corrective RAG (CRAG)<br>(Confidence Gate + Query Reformulation)"]
-        RAGRouter -->|"Comparative / Multi-Entity"| S_MultiHop["Agentic Multi-Hop RAG<br>(Iterative Sub-Query Decomposition & Provenance)"]
-    end
-
-    Layer2 --> Layer3
-
-    subgraph Layer3 ["4. Execution Pattern Tier (10 Standard Agent Modes)"]
-        direction TB
-        subgraph Tier_Fast ["FAST Tier (Low-Latency Execution)"]
-            M1["Mode 1: Single-Turn Augmented"]
-            M8["Mode 8: Tool Agent with Compiler AST Guard"]
-            M10["Mode 10: Contextual Memory (Pure Python RRF)"]
-        end
-        subgraph Tier_Standard ["STANDARD Tier (Exploratory & Voting)"]
-            M2["Mode 2: ReAct with Negative Observation Memory"]
-            M3["Mode 3: Plan-and-Solve (Sequential Steps)"]
-            M6["Mode 6: Verifier-Gated HITL (Dry-Run Preview)"]
-            M9["Mode 9: Self-Consistency Ensemble Voting"]
-        end
-        subgraph Tier_Reasoning ["REASONING Tier (Deep Multi-Stage)"]
-            M4["Mode 4: Planner with Dynamic Replanner"]
-            M5["Mode 5: Reflexion Rubric Scoring (Score >= 8.5)"]
-            M7["Mode 7: Dialectical Debate (Early Stop Delta <= 0.15)"]
+            subgraph Box_Acc ["Inference Acceleration"]
+                direction TB
+                Affinity["Prefix Layout & Affinity Ring"] --> SpecGate["Speculative Gating<br>(Draft K=0, 3, 5)"]
+            end
         end
     end
 
-    M6 -- "Critical Action Triggered" --> SuspendFSM["Task Suspension FSM<br>(Crash-Proof SQLite Persistent State)"]
-    SuspendFSM --> HumanApprove{"Human Operator<br>Approval Sign-off"}
-    HumanApprove -- "Approved (/v1/tasks/resume)" --> Layer4
-    HumanApprove -- "Rejected" --> AbortOut["Task Intercepted & Logged"]
+    ControlPlane --> ExecutionTier
 
-    Layer3 --> Layer4
-
-    subgraph Layer4 ["5. The Agent Harness & Enterprise Governance"]
-        direction TB
-        subgraph Sub_Harness ["The Agent Harness (Code-Enforced Gates)"]
-            FSM_Workflow["Rigid State FSM<br>(IDEA -> RESEARCH -> DRAFT -> AUDIT -> SHIP)"]
-            SlopLinter["AI Slop & Tone Linter<br>(Zero-Tolerance AI Cliché & Filler Filter)"]
-            CleanRoom["Clean-Room Subagents<br>(Isolated Scratchpad Contexts)"]
-            SkillReg["Progressive Skill Registry<br>(On-Demand Schema Disclosure)"]
+    %% 3. Execution Tier
+    subgraph ExecutionTier ["Layer 3: Execution Pattern Tier (10 Standard Agent Modes)"]
+        direction LR
+        
+        subgraph Tier_Fast ["FAST Tier"]
+            direction TB
+            M1["M1: Single-Turn Augmented"]
+            M8["M8: Tool Agent (AST Guard)"]
+            M10["M10: Contextual Memory (RRF)"]
         end
-        subgraph Sub_Gov ["Compiler & Cryptographic Security"]
-            AST_Guard["Compiler AST Guards<br>(Python ast.parse & SQL Dialect Syntax Tree)"]
-            PII_Leak["PII Redaction Rail & System Prompt Leak Guard"]
-            AuditLog["Tamper-Proof Audit Logger<br>(Cryptographic SHA-256 Hash-Chain)"]
+
+        subgraph Tier_Standard ["STANDARD Tier"]
+            direction TB
+            M2["M2: ReAct (Negative Memory)"]
+            M3["M3: Plan-and-Solve"]
+            M6["M6: Verifier-Gated HITL"]
+            M9["M9: Ensemble Voting"]
+        end
+
+        subgraph Tier_Reasoning ["REASONING Tier"]
+            direction TB
+            M4["M4: Dynamic Replanner"]
+            M5["M5: Reflexion (Rubric >= 8.5)"]
+            M7["M7: Debate (Early Convergence)"]
         end
     end
 
-    Layer4 --> Egress["ExecutionResult / SSE Stream Output"]
+    %% Human in the loop branch
+    M6 -. "Critical Risk" .-> SuspendFSM["SQLite Task Suspension FSM"]
+    SuspendFSM -. "Admin Sign-off (/resume)" .-> HarnessLayer
+
+    ExecutionTier --> HarnessLayer
+
+    %% 4. Harness & Governance Tier
+    subgraph HarnessLayer ["Layer 4: The Agent Harness & Security Governance"]
+        direction LR
+        
+        subgraph Harness_Gates ["The Agent Harness"]
+            direction TB
+            RigidFSM["Rigid State FSM<br>(IDEA -> RESEARCH -> DRAFT -> AUDIT -> SHIP)"]
+            SlopLint["AI Slop & Tone Linter<br>(Zero-Tolerance Cliché Filter)"]
+            CleanRoom["Clean-Room Subagents & Progressive Skills"]
+        end
+
+        subgraph Security_Gov ["Compiler & Audit Guardrails"]
+            direction TB
+            AST_Guard["Compiler AST Guards<br>(Python ast.parse & SQL Syntax Tree)"]
+            PII_Guard["PII Redaction & System Prompt Leak Guard"]
+            AuditChain["Tamper-Proof Audit Logger<br>(SHA-256 Cryptographic Hash-Chain)"]
+        end
+    end
+
+    HarnessLayer --> Out(["ExecutionResult / SSE Stream Output"])
+
+    %% Styles for clean modern visual hierarchy
+    classDef default fill:#1f242d,stroke:#3b4252,stroke-width:1px,color:#e5e9f0;
+    classDef highlight fill:#2e3440,stroke:#88c0d0,stroke-width:2px,color:#eceff4;
+    classDef gate fill:#2e3440,stroke:#d08770,stroke-width:2px,color:#eceff4;
+    classDef terminal fill:#3b4252,stroke:#a3be8c,stroke-width:2px,color:#eceff4;
+
+    class Cache,RAG_Gate gate;
+    class Client,InstantOut,Out terminal;
+    class TierMatrix,SpecGate,AuditChain highlight;
 ```
 
 ---
