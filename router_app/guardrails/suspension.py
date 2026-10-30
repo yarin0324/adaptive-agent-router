@@ -48,6 +48,17 @@ class TaskSuspensionManager:
         self.storage.save_task(task)
         return task
 
+    def suspend_task(
+        self,
+        prompt: str,
+        target_mode: str = "mode_6_verifier_gated",
+        risk_level: str = "critical",
+        context: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> SuspendedTask:
+        """別名相容 suspend()"""
+        return self.suspend(prompt=prompt, target_mode=target_mode, risk_level=risk_level, context=context)
+
     def get_task(self, task_id: str) -> Optional[SuspendedTask]:
         return self.storage.get_task(task_id)
 

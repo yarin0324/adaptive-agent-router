@@ -93,3 +93,8 @@ class SQLASTSecurityGuard:
             violations.append("查詢陳述式必須為唯讀指令 (如 SELECT / WITH)")
 
         return len(violations) == 0, violations
+
+    @classmethod
+    def validate_sql(cls, sql_query: str) -> Tuple[bool, List[str]]:
+        """別名相容 validate_query"""
+        return cls.validate_query(sql_query)
